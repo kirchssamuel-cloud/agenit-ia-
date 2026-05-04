@@ -31,12 +31,18 @@ export async function updateSession(request: NextRequest) {
 
   const path = request.nextUrl.pathname;
   const isAuthRoute = path.startsWith("/login") || path.startsWith("/auth");
+  const isPublicMarketing =
+    path === "/" ||
+    path.startsWith("/landing") ||
+    path.startsWith("/signup") ||
+    path.startsWith("/onboarding") ||
+    path.startsWith("/choose-modules") ||
+    path.startsWith("/checkout") ||
+    path.startsWith("/portal");
   const isPublicAsset =
-    path.startsWith("/_next") ||
-    path.startsWith("/favicon") ||
-    path === "/";
+    path.startsWith("/_next") || path.startsWith("/favicon");
 
-  if (!user && !isAuthRoute && !isPublicAsset) {
+  if (!user && !isAuthRoute && !isPublicAsset && !isPublicMarketing) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
@@ -44,7 +50,7 @@ export async function updateSession(request: NextRequest) {
 
   if (user && isAuthRoute) {
     const url = request.nextUrl.clone();
-    url.pathname = "/clients";
+    url.pathname = "/dashboard";
     return NextResponse.redirect(url);
   }
 
