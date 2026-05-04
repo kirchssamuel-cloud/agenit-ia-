@@ -16,10 +16,15 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { listSkills, listLearnings } from "@/lib/db/agent-skills";
+import { ensureLoaded, listClients } from "@/lib/db/store";
 import { MODULE_REGISTRY, getModuleById } from "@/modules/registry";
 import { NewSkillDialog } from "./new-skill-dialog";
+import { AgentTestChat } from "./agent-test-chat";
 
 export default async function EducationPage() {
+  await ensureLoaded();
+  const clients = listClients().map((c) => ({ id: c.id, name: c.name }));
+
   let skills: Awaited<ReturnType<typeof listSkills>> = [];
   let learnings: Awaited<ReturnType<typeof listLearnings>> = [];
   let migrationMissing = false;
@@ -87,6 +92,8 @@ export default async function EducationPage() {
             icon={<TrendingUp className="size-4" />}
           />
         </div>
+
+        <AgentTestChat clients={clients} />
 
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">

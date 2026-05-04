@@ -1,0 +1,441 @@
+import "server-only";
+import Anthropic from "@anthropic-ai/sdk";
+import { randomUUID } from "node:crypto";
+import { z } from "zod";
+
+import { TOOL_REGISTRY, getToolById } from "./tools/registry";
+import type { AnyTool, ToolContext } from "./tools/types";
+import {
+  appendMessage,
+  createConversation,
+  getConversation,
+  listMessages,
+  listClientFacts,
+  type Message,
+} from "@/lib/db/agent-brain";
+import { listSkills, type AgentSkill } from "@/lib/db/agent-skills";
+import { ensureLoaded, getClient, listClientModules } from "@/lib/db/store";
+import { MODULE_REGISTRY, getModuleById } from "@/modules/registry";
+
+// ============================================================
+// Types
+// ============================================================
+
+export interface BrainChatInput {
+  clientId: string;
+  conversationId?: string;
+  /** Message texte du user (canal: web pour l'instant) */
+  userMessage: string;
+  channel?: "web" | "whatsapp" | "email" | "api";
+}
+
+export interface BrainChatOutput {
+  conversationId: string;
+  assistantMessage: string;
+  toolUses: Array<{
+    toolName: string;
+    input: unknown;
+    output: unknown;
+    isError: boolean;
+  }>;
+  costCents: number;
+  tokensIn: number;
+  tokensOut: number;
+}
+
+// ============================================================
+// Tool catalog → Claude tools format
+// ============================================================
+
+function zodToJsonSchema(schema: z.ZodTypeAny): Record<string, unknown> {
+  // Conversion minimale Zod → JSON Schema. Pour les cas simples ça marche.
+  // Pour les cas complexes on remplacera par zod-to-json-schema plus tard.
+  const def = schema._def as { typeName?: string };
+  if (def.typeName === "ZodObject") {
+    const obj = schema as unknown as z.ZodObject<z.ZodRawShape>;
+    const shape = obj.shape;
+    const properties: Record<string, unknown> = {};
+    const required: string[] = [];
+    for (const [key, sub] of Object.entries(shape)) {
+      const subZ = sub as z.ZodTypeAny;
+      properties[key] = zodToJsonSchema(subZ);
+      const subDef = subZ._def as { typeName?: string };
+      if (subDef.typeName !== "ZodOptional" && subDef.typeName !== "ZodDefault") {
+        required.push(key);
+      }
+    }
+    return { type: "object", properties, required };
+  }
+  if (def.typeName === "ZodString") return { type: "string" };
+  if (def.typeName === "ZodNumber") return { type: "number" };
+  if (def.typeName === "ZodBoolean") return { type: "boolean" };
+  if (def.typeName === "ZodArray") {
+    const arr = schema as unknown as z.ZodArray<z.ZodTypeAny>;
+    return { type: "array", items: zodToJsonSchema(arr._def.type) };
+  }
+  if (def.typeName === "ZodEnum") {
+    const en = schema as unknown as z.ZodEnum<[string, ...string[]]>;
+    return { type: "string", enum: en._def.values };
+  }
+  if (def.typeName === "ZodOptional" || def.typeName === "ZodDefault") {
+    const inner = (schema as unknown as { _def: { innerType: z.ZodTypeAny } })._def
+      .innerType;
+    return zodToJsonSchema(inner);
+  }
+  if (def.typeName === "ZodRecord") return { type: "object" };
+  return {}; // fallback
+}
+
+function toolToClaudeFormat(tool: AnyTool): Anthropic.Tool {
+  const inputSchema = zodToJsonSchema(tool.inputSchema) as Anthropic.Tool["input_schema"];
+  return {
+    name: tool.id.replace(/-/g, "_"),
+    description: tool.description,
+    input_schema: inputSchema,
+  };
+}
+
+// Map nom Claude → tool original
+function buildToolMap(tools: AnyTool[]): Map<string, AnyTool> {
+  const m = new Map<string, AnyTool>();
+  for (const t of tools) m.set(t.id.replace(/-/g, "_"), t);
+  return m;
+}
+
+// ============================================================
+// Sélection des tools dispo pour ce client
+// ============================================================
+
+function getAvailableToolsForClient(clientId: string): AnyTool[] {
+  const cms = listClientModules(clientId).filter((cm) => cm.enabled);
+  const allowedToolIds = new Set<string>();
+  for (const cm of cms) {
+    const mod = getModuleById(cm.moduleId);
+    if (!mod) continue;
+    for (const tid of mod.tools) allowedToolIds.add(tid);
+  }
+  return TOOL_REGISTRY.filter(
+    (t) => t.exposedToLLM && allowedToolIds.has(t.id),
+  );
+}
+
+// ============================================================
+// Construction du system prompt
+// ============================================================
+
+function buildSystemPrompt(opts: {
+  clientName: string;
+  industry?: string;
+  skills: AgentSkill[];
+  facts: Awaited<ReturnType<typeof listClientFacts>>;
+}): string {
+  const lines: string[] = [];
+  lines.push(
+    `Tu es l'agent IA personnel de ${opts.clientName}${opts.industry ? ` (secteur : ${opts.industry})` : ""}.`,
+  );
+  lines.push("");
+  lines.push("Ton rôle : aider le client à exécuter ses tâches métier en utilisant les outils à ta disposition.");
+  lines.push("");
+  lines.push("Règles :");
+  lines.push("- Réponds en français, ton chaleureux mais professionnel.");
+  lines.push("- Utilise les tools quand c'est pertinent (ne demande pas la permission, agis).");
+  lines.push("- Si tu manques d'info, demande au client.");
+  lines.push("- Confirme toujours les actions critiques (envoi d'email, push CRM) avant de les faire.");
+  lines.push("- Garde tes réponses concises (sauf si l'user demande des détails).");
+
+  if (opts.skills.length > 0) {
+    lines.push("");
+    lines.push("# Compétences que tu maîtrises (apprises par l'admin)");
+    for (const s of opts.skills.filter((sk) => sk.status === "active")) {
+      lines.push(`- **${s.name}** : ${s.description ?? "—"}`);
+      if (s.triggerPattern) lines.push(`  Déclencheur : ${s.triggerPattern}`);
+      if (s.actionTemplate) lines.push(`  Action : ${s.actionTemplate}`);
+    }
+  }
+
+  if (opts.facts.length > 0) {
+    lines.push("");
+    lines.push("# Ce que tu sais sur ce client (mémoire long-terme)");
+    for (const f of opts.facts) {
+      lines.push(`- [${f.category}] ${f.fact}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+// ============================================================
+// Conversion messages DB → format Claude
+// ============================================================
+
+function dbMessagesToClaudeMessages(messages: Message[]): Anthropic.MessageParam[] {
+  const out: Anthropic.MessageParam[] = [];
+  for (const m of messages) {
+    if (m.role === "user") {
+      out.push({ role: "user", content: m.content ?? "" });
+    } else if (m.role === "assistant") {
+      // Reconstruction du turn assistant : texte + éventuels tool_use
+      const contentBlocks: Anthropic.ContentBlockParam[] = [];
+      if (m.content) {
+        contentBlocks.push({ type: "text", text: m.content });
+      }
+      const toolCalls = m.toolCalls as
+        | Array<{ id: string; name: string; input: unknown }>
+        | null;
+      if (toolCalls) {
+        for (const tc of toolCalls) {
+          contentBlocks.push({
+            type: "tool_use",
+            id: tc.id,
+            name: tc.name,
+            input: tc.input as Record<string, unknown>,
+          });
+        }
+      }
+      if (contentBlocks.length > 0) {
+        out.push({ role: "assistant", content: contentBlocks });
+      }
+    } else if (m.role === "tool") {
+      // Tool results sont stockés comme messages "tool" en DB,
+      // mais doivent partir dans un user-turn côté Claude.
+      const toolResults = m.toolResults as
+        | Array<{ tool_use_id: string; content: string; is_error?: boolean }>
+        | null;
+      if (toolResults) {
+        out.push({
+          role: "user",
+          content: toolResults.map((r) => ({
+            type: "tool_result" as const,
+            tool_use_id: r.tool_use_id,
+            content: r.content,
+            is_error: r.is_error ?? false,
+          })),
+        });
+      }
+    }
+  }
+  return out;
+}
+
+// ============================================================
+// Cœur : la fonction de chat
+// ============================================================
+
+const MODEL = "claude-opus-4-7";
+const MAX_TOKENS = 16_000;
+const MAX_AGENT_ITERATIONS = 6;
+
+export async function chatWithAgent(input: BrainChatInput): Promise<BrainChatOutput> {
+  await ensureLoaded();
+
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      "ANTHROPIC_API_KEY manquante. Crée une clé sur https://console.anthropic.com/settings/keys et ajoute-la à .env.local.",
+    );
+  }
+
+  const client = getClient(input.clientId);
+  if (!client) throw new Error(`Client introuvable : ${input.clientId}`);
+
+  // 1. Conversation : récupère ou crée
+  let conversation = input.conversationId
+    ? await getConversation(input.conversationId)
+    : null;
+  if (!conversation) {
+    conversation = await createConversation(
+      input.clientId,
+      input.channel ?? "web",
+    );
+  }
+
+  // 2. Charger contexte
+  const [skills, facts, history] = await Promise.all([
+    listSkills().catch(() => [] as AgentSkill[]),
+    listClientFacts(input.clientId).catch(() => []),
+    listMessages(conversation.id, 30),
+  ]);
+
+  // 3. Append le message user en DB
+  await appendMessage({
+    conversationId: conversation.id,
+    role: "user",
+    content: input.userMessage,
+  });
+
+  // 4. Construire system + messages + tools
+  const systemPrompt = buildSystemPrompt({
+    clientName: client.name,
+    industry: client.industry,
+    skills,
+    facts,
+  });
+
+  const claudeMessages: Anthropic.MessageParam[] = [
+    ...dbMessagesToClaudeMessages(history),
+    { role: "user", content: input.userMessage },
+  ];
+
+  const availableTools = getAvailableToolsForClient(input.clientId);
+  const toolMap = buildToolMap(availableTools);
+  const claudeTools: Anthropic.Tool[] = availableTools.map(toolToClaudeFormat);
+
+  // 5. Boucle agent : tool use loop
+  const anthropic = new Anthropic({ apiKey });
+
+  const toolUses: BrainChatOutput["toolUses"] = [];
+  let totalTokensIn = 0;
+  let totalTokensOut = 0;
+  let assistantText = "";
+  let iter = 0;
+
+  while (iter < MAX_AGENT_ITERATIONS) {
+    iter++;
+
+    const response = await anthropic.messages.create({
+      model: MODEL,
+      max_tokens: MAX_TOKENS,
+      // System prompt avec cache_control pour réduire les coûts entre tours
+      system: [
+        {
+          type: "text",
+          text: systemPrompt,
+          cache_control: { type: "ephemeral" },
+        },
+      ],
+      tools: claudeTools.length > 0 ? claudeTools : undefined,
+      messages: claudeMessages,
+    });
+
+    totalTokensIn += response.usage.input_tokens;
+    totalTokensOut += response.usage.output_tokens;
+
+    // Extraire le texte de la réponse
+    const textBlocks = response.content.filter(
+      (b): b is Anthropic.TextBlock => b.type === "text",
+    );
+    const turnText = textBlocks.map((b) => b.text).join("\n");
+    if (turnText) assistantText = turnText;
+
+    // Extraire les tool_use
+    const toolCalls = response.content.filter(
+      (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
+    );
+
+    // Append le turn assistant en DB (avec tool_use s'il y en a)
+    await appendMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: turnText || null,
+      toolCalls: toolCalls.length > 0
+        ? toolCalls.map((tc) => ({ id: tc.id, name: tc.name, input: tc.input }))
+        : undefined,
+      tokensIn: response.usage.input_tokens,
+      tokensOut: response.usage.output_tokens,
+    });
+
+    // Si pas de tool_use, on a fini
+    if (response.stop_reason !== "tool_use" || toolCalls.length === 0) {
+      break;
+    }
+
+    // Push la réponse assistant dans messages pour la prochaine itération
+    claudeMessages.push({ role: "assistant", content: response.content });
+
+    // Exécuter chaque tool
+    const ctx: ToolContext = {
+      clientId: input.clientId,
+      runId: randomUUID(),
+      log: () => {},
+    };
+
+    const toolResults: Anthropic.ToolResultBlockParam[] = [];
+    const dbToolResults: Array<{
+      tool_use_id: string;
+      content: string;
+      is_error: boolean;
+    }> = [];
+
+    for (const tc of toolCalls) {
+      const tool = toolMap.get(tc.name);
+      if (!tool) {
+        const errMsg = `Tool inconnu : ${tc.name}`;
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: tc.id,
+          content: errMsg,
+          is_error: true,
+        });
+        dbToolResults.push({ tool_use_id: tc.id, content: errMsg, is_error: true });
+        toolUses.push({
+          toolName: tc.name,
+          input: tc.input,
+          output: errMsg,
+          isError: true,
+        });
+        continue;
+      }
+
+      try {
+        const validated = tool.inputSchema.parse(tc.input);
+        const output = await tool.execute(validated, ctx);
+        const outputStr = JSON.stringify(output, null, 2);
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: tc.id,
+          content: outputStr,
+        });
+        dbToolResults.push({
+          tool_use_id: tc.id,
+          content: outputStr,
+          is_error: false,
+        });
+        toolUses.push({
+          toolName: tc.name,
+          input: tc.input,
+          output,
+          isError: false,
+        });
+      } catch (err) {
+        const errMsg = (err as Error).message;
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: tc.id,
+          content: errMsg,
+          is_error: true,
+        });
+        dbToolResults.push({ tool_use_id: tc.id, content: errMsg, is_error: true });
+        toolUses.push({
+          toolName: tc.name,
+          input: tc.input,
+          output: errMsg,
+          isError: true,
+        });
+      }
+    }
+
+    // Sauve les tool results en DB comme un message "tool"
+    await appendMessage({
+      conversationId: conversation.id,
+      role: "tool",
+      toolResults: dbToolResults,
+    });
+
+    // Push tool_results pour la prochaine itération Claude
+    claudeMessages.push({ role: "user", content: toolResults });
+  }
+
+  // Coût approximatif Claude Opus 4.7 : $5/M input, $25/M output
+  const costCents = Math.round(
+    (totalTokensIn / 1_000_000) * 500 + (totalTokensOut / 1_000_000) * 2_500,
+  );
+
+  return {
+    conversationId: conversation.id,
+    assistantMessage: assistantText || "(pas de réponse)",
+    toolUses,
+    costCents,
+    tokensIn: totalTokensIn,
+    tokensOut: totalTokensOut,
+  };
+}
