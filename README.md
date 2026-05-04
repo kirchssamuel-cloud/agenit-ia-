@@ -41,7 +41,33 @@ Tu peux maintenant te connecter via `/login` avec ces credentials.
 
 ### Schéma de base
 
-Le schéma SQL est dans `supabase/schema.sql`. À exécuter une fois dans Supabase → SQL Editor → Run.
+Migrations à exécuter dans Supabase → SQL Editor → Run, dans l'ordre :
+
+1. `supabase/schema.sql` — tables initiales (clients, client_modules, module_runs)
+2. `supabase/migrations/002_oauth_tokens.sql` — table client_oauth_tokens (Gmail/Microsoft)
+
+### Google OAuth (pour le tool `read-gmail-inbox`)
+
+1. Va sur <https://console.cloud.google.com>
+2. Crée un projet (ou utilise un existant)
+3. **APIs & Services → Library** → active **Gmail API**
+4. **APIs & Services → OAuth consent screen** → External → renseigne app name + email de support
+5. **APIs & Services → Credentials** → Create credentials → OAuth client ID
+   - Application type : **Web application**
+   - Authorized redirect URIs : `http://localhost:3000/api/oauth/google/callback` (ajoute aussi ton URL de prod plus tard)
+6. Copie le **Client ID** et **Client secret** dans `.env.local` :
+   ```
+   GOOGLE_CLIENT_ID="..."
+   GOOGLE_CLIENT_SECRET="..."
+   GOOGLE_REDIRECT_URI="http://localhost:3000/api/oauth/google/callback"
+   ```
+7. Redémarre le serveur dev. Bouton "Connecter Gmail" actif sur la fiche client.
+
+### Email transactionnel (optionnel, pour `send-email`)
+
+1. Compte sur <https://resend.com> (gratuit jusqu'à 3000 emails/mois)
+2. Récupère ton API key
+3. Ajoute dans `.env.local` : `RESEND_API_KEY="..."`
 
 ---
 

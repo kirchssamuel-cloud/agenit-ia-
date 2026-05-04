@@ -2,6 +2,7 @@ import { Sparkles } from "lucide-react";
 import { z } from "zod";
 import type { ModuleDefinition, ModuleRunResult } from "../types";
 import { parseCsvTool } from "@/agent/tools/parse-csv";
+import { parseXlsxTool } from "@/agent/tools/parse-xlsx";
 import { normalizePhonesTool } from "@/agent/tools/normalize-phones";
 import { dedupRowsTool } from "@/agent/tools/dedup-rows";
 import { pushIcall26Tool } from "@/agent/tools/push-icall26";
@@ -18,7 +19,13 @@ const configSchema = z.object({
 });
 
 type LeadCleaningConfig = z.infer<typeof configSchema>;
-type Payload = { fileContent: string; fileName?: string };
+type Payload = {
+  /** Contenu CSV (texte) — utilisé si fileBase64 absent */
+  fileContent?: string;
+  /** Fichier XLSX/XLS encodé en base64 */
+  fileBase64?: string;
+  fileName?: string;
+};
 
 export const leadCleaningModule: ModuleDefinition<typeof configSchema> = {
   id: "lead-cleaning",
@@ -34,6 +41,7 @@ export const leadCleaningModule: ModuleDefinition<typeof configSchema> = {
   pricing: { monthlyEUR: 49 },
   tools: [
     parseCsvTool.id,
+    parseXlsxTool.id,
     normalizePhonesTool.id,
     dedupRowsTool.id,
     pushIcall26Tool.id,
@@ -52,16 +60,33 @@ export const leadCleaningModule: ModuleDefinition<typeof configSchema> = {
   async run(ctx): Promise<ModuleRunResult> {
     const config = ctx.config as LeadCleaningConfig;
     const payload = ctx.payload as Payload;
-    if (!payload?.fileContent) {
-      return { ok: false, summary: "Aucun fichier fourni", error: "missing fileContent" };
+
+    let parsedRows: Record<string, string>[] = [];
+    let initialCount = 0;
+
+    if (payload?.fileBase64) {
+      const parsed = await parseXlsxTool.execute(
+        { contentBase64: payload.fileBase64 },
+        ctx,
+      );
+      parsedRows = parsed.rows;
+      initialCount = parsed.rowCount;
+    } else if (payload?.fileContent) {
+      const parsed = await parseCsvTool.execute(
+        { content: payload.fileContent },
+        ctx,
+      );
+      parsedRows = parsed.rows;
+      initialCount = parsed.rowCount;
+    } else {
+      return {
+        ok: false,
+        summary: "Aucun fichier fourni",
+        error: "missing fileContent or fileBase64",
+      };
     }
 
-    const parsed = await parseCsvTool.execute(
-      { content: payload.fileContent },
-      ctx,
-    );
-
-    let rows = parsed.rows;
+    let rows = parsedRows;
 
     if (config.normalizePhones) {
       const normalized = await normalizePhonesTool.execute(
@@ -112,9 +137,9 @@ export const leadCleaningModule: ModuleDefinition<typeof configSchema> = {
 
     return {
       ok: true,
-      summary: `${rows.length} leads propres (sur ${parsed.rowCount}), ${duplicatesRemoved} doublons retirés, ${pushed} poussés vers ${config.crmTarget}`,
+      summary: `${rows.length} leads propres (sur ${initialCount}), ${duplicatesRemoved} doublons retirés, ${pushed} poussés vers ${config.crmTarget}`,
       data: {
-        initialCount: parsed.rowCount,
+        initialCount,
         finalCount: rows.length,
         duplicatesRemoved,
         pushed,

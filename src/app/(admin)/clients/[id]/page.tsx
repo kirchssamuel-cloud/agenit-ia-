@@ -1,11 +1,13 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Mail, Phone, Building2 } from "lucide-react";
+import { ArrowLeft, Mail, Phone, Building2, Link2, CheckCircle2 } from "lucide-react";
 import { AdminTopbar } from "@/components/admin/sidebar";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { getClient, listClientModules, ensureLoaded } from "@/lib/db/store";
+import { getOAuthToken } from "@/lib/db/oauth";
 import { MODULE_REGISTRY } from "@/modules/registry";
 import { ModuleToggle } from "./module-toggle";
 
@@ -22,6 +24,14 @@ export default async function ClientDetailPage({
   const cms = listClientModules(id);
   const enabledMap = new Map(cms.map((cm) => [cm.moduleId, cm.enabled]));
   const activeCount = cms.filter((cm) => cm.enabled).length;
+
+  let googleToken: Awaited<ReturnType<typeof getOAuthToken>> = null;
+  try {
+    googleToken = await getOAuthToken(id, "google");
+  } catch {
+    // Si la table client_oauth_tokens n'existe pas encore, on ignore.
+    googleToken = null;
+  }
 
   return (
     <>
@@ -67,6 +77,50 @@ export default async function ClientDetailPage({
                   <p className="text-muted-foreground">{client.notes}</p>
                 </>
               ) : null}
+            </CardContent>
+          </Card>
+
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Link2 className="size-5" /> Connexions externes
+              </CardTitle>
+              <CardDescription>
+                Comptes du client connectés à la plateforme. Permettent à l&apos;agent
+                d&apos;agir directement sur ses outils.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-border p-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex size-10 items-center justify-center rounded-md bg-secondary text-secondary-foreground">
+                    <Mail className="size-5" />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-semibold">Gmail</span>
+                    {googleToken ? (
+                      <span className="text-xs text-muted-foreground">
+                        Connecté : {googleToken.accountEmail ?? "compte Google"}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        Non connecté
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {googleToken ? (
+                  <Badge variant="default" className="gap-1">
+                    <CheckCircle2 className="size-3" /> Actif
+                  </Badge>
+                ) : (
+                  <Button asChild size="sm">
+                    <a href={`/api/oauth/google/start?clientId=${client.id}`}>
+                      Connecter Gmail
+                    </a>
+                  </Button>
+                )}
+              </div>
             </CardContent>
           </Card>
 

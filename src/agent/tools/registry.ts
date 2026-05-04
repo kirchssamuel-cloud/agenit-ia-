@@ -1,5 +1,6 @@
 import type { AnyTool } from "./types";
 import { parseCsvTool } from "./parse-csv";
+import { parseXlsxTool } from "./parse-xlsx";
 import { normalizePhonesTool } from "./normalize-phones";
 import { dedupRowsTool } from "./dedup-rows";
 import { sendEmailTool } from "./send-email";
@@ -8,6 +9,7 @@ import { pushIcall26Tool } from "./push-icall26";
 
 export const TOOL_REGISTRY: AnyTool[] = [
   parseCsvTool,
+  parseXlsxTool,
   normalizePhonesTool,
   dedupRowsTool,
   sendEmailTool,
