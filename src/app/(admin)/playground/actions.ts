@@ -15,14 +15,29 @@ export async function runPlaygroundAction(formData: FormData): Promise<Playgroun
     return { ok: false, error: "clientId et moduleId requis" };
   }
   if (!fileContent.trim()) {
-    return { ok: false, error: "Collez un contenu CSV pour tester" };
+    return { ok: false, error: "Donne un input pour tester" };
+  }
+
+  // Construit le payload selon le module
+  let payload: unknown;
+  if (moduleId === "lead-cleaning") {
+    payload = { fileContent };
+  } else if (moduleId === "tour-planning") {
+    try {
+      payload = JSON.parse(fileContent);
+    } catch (err) {
+      return { ok: false, error: `JSON invalide : ${(err as Error).message}` };
+    }
+  } else {
+    payload = { fileContent };
   }
 
   try {
     const outcome = await runModuleForClient({
       clientId,
       moduleId,
-      payload: { fileContent },
+      payload,
+      bypassEnabledCheck: true,
     });
     return { ok: true, outcome };
   } catch (err) {

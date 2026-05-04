@@ -6,6 +6,7 @@ import { dedupRowsTool } from "./dedup-rows";
 import { sendEmailTool } from "./send-email";
 import { readGmailInboxTool } from "./read-gmail-inbox";
 import { pushIcall26Tool } from "./push-icall26";
+import { optimizeRouteTool } from "./optimize-route";
 
 export const TOOL_REGISTRY: AnyTool[] = [
   parseCsvTool,
@@ -15,6 +16,7 @@ export const TOOL_REGISTRY: AnyTool[] = [
   sendEmailTool,
   readGmailInboxTool,
   pushIcall26Tool,
+  optimizeRouteTool,
 ];
 
 const byId = new Map<string, AnyTool>(TOOL_REGISTRY.map((t) => [t.id, t]));

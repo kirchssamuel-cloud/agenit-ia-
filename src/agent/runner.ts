@@ -2,11 +2,14 @@ import { randomUUID } from "node:crypto";
 import { getModuleById } from "@/modules/registry";
 import { listClientModules, getClient, ensureLoaded } from "@/lib/db/store";
 import type { ModuleRunContext, ModuleRunResult } from "@/modules/types";
+import { recordRun } from "@/lib/db/runs";
 
 export interface RunModuleArgs {
   clientId: string;
   moduleId: string;
   payload: unknown;
+  /** Pour le playground admin : exécute même si le module n'est pas activé pour ce client. */
+  bypassEnabledCheck?: boolean;
 }
 
 export interface RunLogEntry {
@@ -31,6 +34,7 @@ export async function runModuleForClient({
   clientId,
   moduleId,
   payload,
+  bypassEnabledCheck,
 }: RunModuleArgs): Promise<RunOutcome> {
   await ensureLoaded();
   const client = getClient(clientId);
@@ -42,7 +46,7 @@ export async function runModuleForClient({
 
   const cms = listClientModules(clientId);
   const cm = cms.find((x) => x.moduleId === moduleId);
-  if (!cm || !cm.enabled) {
+  if (!bypassEnabledCheck && (!cm || !cm.enabled)) {
     throw new Error(`Module ${moduleId} non activé pour ${client.name}.`);
   }
 
@@ -58,13 +62,14 @@ export async function runModuleForClient({
 
   let result: ModuleRunResult;
   try {
+    const config = cm?.config ?? mod.defaultConfig ?? {};
     const ctx: ModuleRunContext<unknown> = {
       clientId,
       moduleId,
       runId,
-      moduleConfig: cm.config,
+      moduleConfig: config,
       log,
-      config: cm.config,
+      config,
       payload,
     };
     result = await mod.run(ctx);
@@ -83,7 +88,7 @@ export async function runModuleForClient({
     `Fin du module : ${result.summary}`,
   );
 
-  return {
+  const outcome: RunOutcome = {
     runId,
     clientId,
     moduleId,
@@ -93,4 +98,9 @@ export async function runModuleForClient({
     result,
     logs,
   };
+
+  // Persistance (best-effort, n'échoue pas le run)
+  await recordRun(outcome);
+
+  return outcome;
 }

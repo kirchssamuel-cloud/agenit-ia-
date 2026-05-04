@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Mail, Phone, Building2, Link2, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Mail, Phone, Building2, Link2, CheckCircle2, History, CheckCircle, XCircle } from "lucide-react";
 import { AdminTopbar } from "@/components/admin/sidebar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Separator } from "@/components/ui/separator";
 import { getClient, listClientModules, ensureLoaded } from "@/lib/db/store";
 import { getOAuthToken } from "@/lib/db/oauth";
-import { MODULE_REGISTRY } from "@/modules/registry";
+import { listRunsForClient } from "@/lib/db/runs";
+import { MODULE_REGISTRY, getModuleById } from "@/modules/registry";
 import { ModuleToggle } from "./module-toggle";
 
 export default async function ClientDetailPage({
@@ -29,8 +30,14 @@ export default async function ClientDetailPage({
   try {
     googleToken = await getOAuthToken(id, "google");
   } catch {
-    // Si la table client_oauth_tokens n'existe pas encore, on ignore.
     googleToken = null;
+  }
+
+  let runs: Awaited<ReturnType<typeof listRunsForClient>> = [];
+  try {
+    runs = await listRunsForClient(id, 15);
+  } catch {
+    runs = [];
   }
 
   return (
@@ -40,13 +47,20 @@ export default async function ClientDetailPage({
         description={client.industry ?? "Client"}
       />
       <div className="flex flex-col gap-6 p-8">
-        <Link
-          href="/clients"
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="size-3.5" />
-          Retour à la liste
-        </Link>
+        <div className="flex items-center justify-between">
+          <Link
+            href="/clients"
+            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft className="size-3.5" />
+            Retour à la liste
+          </Link>
+          <Button asChild variant="outline" size="sm">
+            <Link href={`/portal/${client.id}`} target="_blank">
+              Voir comme le client →
+            </Link>
+          </Button>
+        </div>
 
         <div className="grid gap-6 lg:grid-cols-3">
           <Card className="lg:col-span-1">
@@ -121,6 +135,65 @@ export default async function ClientDetailPage({
                   </Button>
                 )}
               </div>
+            </CardContent>
+          </Card>
+
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <History className="size-5" />
+                Historique d&apos;exécution
+                <Badge variant="secondary">{runs.length}</Badge>
+              </CardTitle>
+              <CardDescription>
+                Les 15 dernières exécutions de modules pour ce client.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {runs.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Aucune exécution pour le moment. Lance un module depuis le Playground pour
+                  voir l&apos;historique se remplir.
+                </p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {runs.map((r) => {
+                    const mod = getModuleById(r.moduleId);
+                    const isSuccess = r.status === "success";
+                    return (
+                      <div
+                        key={r.id}
+                        className="flex items-start gap-3 rounded-md border border-border p-3 text-sm"
+                      >
+                        {isSuccess ? (
+                          <CheckCircle className="size-4 mt-0.5 text-emerald-600 shrink-0" />
+                        ) : (
+                          <XCircle className="size-4 mt-0.5 text-destructive shrink-0" />
+                        )}
+                        <div className="flex flex-1 flex-col gap-0.5 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium">{mod?.name ?? r.moduleId}</span>
+                            <Badge variant={isSuccess ? "default" : "destructive"}>
+                              {r.status}
+                            </Badge>
+                            {r.durationMs != null ? (
+                              <span className="text-xs text-muted-foreground">
+                                {r.durationMs} ms
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="text-muted-foreground truncate">
+                            {r.summary ?? r.errorMessage ?? "—"}
+                          </p>
+                          <span className="text-xs text-muted-foreground">
+                            {new Date(r.startedAt).toLocaleString("fr-FR")}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </CardContent>
           </Card>
 

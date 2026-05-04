@@ -19,13 +19,34 @@ interface ModuleOption {
   name: string;
 }
 
-const SAMPLE_CSV = `nom;prenom;telephone;email;ville
+const SAMPLES: Record<string, string> = {
+  "lead-cleaning": `nom;prenom;telephone;email;ville
 Dupont;Jean;06 12 34 56 78;jean.dupont@example.com;Paris
 Martin;Sophie;0712345678;sophie.martin@example.com;Lyon
 Dupont;Jean;06.12.34.56.78;jean.dupont@example.com;Paris
 Bernard;Lucie;+33623456789;lucie.b@example.com;Marseille
 Garcia;Pierre;033 6 11 22 33 44;p.garcia@example.com;Toulouse
-`;
+`,
+  "tour-planning": JSON.stringify(
+    {
+      sales: [
+        { id: "s1", name: "Marc", homeAddress: "10 rue de Rivoli, 75001 Paris", email: "marc@solaris.fr" },
+        { id: "s2", name: "Léa", homeAddress: "5 avenue de la République, 75011 Paris", email: "lea@solaris.fr" },
+      ],
+      appointments: [
+        { id: "rdv1", address: "12 rue Saint-Antoine, 75004 Paris", durationMinutes: 60 },
+        { id: "rdv2", address: "45 boulevard Voltaire, 75011 Paris", durationMinutes: 60 },
+        { id: "rdv3", address: "8 rue de Belleville, 75019 Paris", durationMinutes: 45 },
+        { id: "rdv4", address: "1 place de la Bastille, 75004 Paris", durationMinutes: 60 },
+        { id: "rdv5", address: "100 rue de Vaugirard, 75006 Paris", durationMinutes: 60 },
+        { id: "rdv6", address: "20 rue de la Roquette, 75011 Paris", durationMinutes: 60 },
+      ],
+    },
+    null,
+    2,
+  ),
+};
+const SAMPLE_CSV = SAMPLES["lead-cleaning"];
 
 export function PlaygroundForm({
   clients,
@@ -36,7 +57,10 @@ export function PlaygroundForm({
 }) {
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<PlaygroundResult | null>(null);
-  const [fileContent, setFileContent] = useState(SAMPLE_CSV);
+  const [moduleId, setModuleId] = useState(modules[0]?.id ?? "");
+  const [fileContent, setFileContent] = useState(
+    SAMPLES[modules[0]?.id ?? ""] ?? SAMPLE_CSV,
+  );
 
   const onSubmit = (formData: FormData) => {
     formData.set("fileContent", fileContent);
@@ -78,7 +102,13 @@ export function PlaygroundForm({
                 id="moduleId"
                 name="moduleId"
                 required
-                defaultValue={modules[0]?.id ?? ""}
+                value={moduleId}
+                onChange={(e) => {
+                  setModuleId(e.target.value);
+                  if (SAMPLES[e.target.value]) {
+                    setFileContent(SAMPLES[e.target.value]);
+                  }
+                }}
                 className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
               >
                 {modules.map((m) => (
@@ -89,13 +119,15 @@ export function PlaygroundForm({
               </select>
             </div>
             <div className="grid gap-1.5">
-              <Label htmlFor="fileContent">Contenu CSV (collez ou éditez le sample)</Label>
+              <Label htmlFor="fileContent">
+                {moduleId === "tour-planning" ? "Payload JSON (RDV + commerciaux)" : "Contenu CSV"}
+              </Label>
               <textarea
                 id="fileContent"
                 name="fileContent"
                 value={fileContent}
                 onChange={(e) => setFileContent(e.target.value)}
-                rows={10}
+                rows={12}
                 className="rounded-md border border-input bg-transparent p-3 font-mono text-xs"
               />
             </div>
