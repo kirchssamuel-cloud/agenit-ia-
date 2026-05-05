@@ -1,18 +1,27 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Lock, ArrowRight, ShieldCheck, CreditCard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { MODULE_REGISTRY, getModuleById } from "@/modules/registry";
+import { ensureLoaded, getClient } from "@/lib/db/store";
+import { getModuleById } from "@/modules/registry";
 
 export default async function CheckoutPage({
   searchParams,
 }: {
-  searchParams: Promise<{ modules?: string }>;
+  searchParams: Promise<{ modules?: string; clientId?: string }>;
 }) {
   const params = await searchParams;
+  const clientId = params.clientId;
+  if (!clientId) redirect("/signup");
+
+  await ensureLoaded();
+  const client = getClient(clientId);
+  if (!client) redirect("/signup");
+
   const ids = (params.modules ?? "").split(",").filter(Boolean);
   const selectedModules = ids
     .map((id) => getModuleById(id))
@@ -26,7 +35,7 @@ export default async function CheckoutPage({
           Retourne sur la page de choix pour sélectionner tes modules.
         </p>
         <Button asChild>
-          <Link href="/choose-modules">Choisir mes modules</Link>
+          <Link href={`/choose-modules?clientId=${clientId}`}>Choisir mes modules</Link>
         </Button>
       </div>
     );
@@ -43,7 +52,7 @@ export default async function CheckoutPage({
         <div>
           <h1 className="text-3xl font-bold">Paiement</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            On utilise Stripe pour le paiement. Annulable à tout moment.
+            Compte de <strong>{client.name}</strong>. Annulable à tout moment.
           </p>
         </div>
 
@@ -54,15 +63,18 @@ export default async function CheckoutPage({
               Carte bancaire
             </CardTitle>
             <CardDescription>
-              💡 Démo UI : Stripe sera branché ici (StripeElements ou Checkout
-              redirect).
+              💡 Aperçu : Stripe sera branché ici. Pour l&apos;instant clique « Payer »
+              pour simuler le paiement et accéder à ton agent.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form className="flex flex-col gap-4" action="/onboarding">
+            <form
+              className="flex flex-col gap-4"
+              action={`/onboarding?clientId=${client.id}`}
+            >
               <div className="grid gap-1.5">
                 <Label htmlFor="cardName">Nom sur la carte</Label>
-                <Input id="cardName" placeholder="Samuel Kirchs" />
+                <Input id="cardName" placeholder={client.name} />
               </div>
               <div className="grid gap-1.5">
                 <Label htmlFor="cardNumber">Numéro de carte</Label>
@@ -86,8 +98,7 @@ export default async function CheckoutPage({
                 <Lock className="size-4" /> Payer {total} €/mois
               </Button>
               <p className="flex items-center justify-center gap-2 text-center text-xs text-muted-foreground">
-                <ShieldCheck className="size-3.5" /> Paiement sécurisé · SSL ·
-                3D Secure
+                <ShieldCheck className="size-3.5" /> Paiement sécurisé · SSL · 3D Secure
               </p>
             </form>
           </CardContent>

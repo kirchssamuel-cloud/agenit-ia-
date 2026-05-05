@@ -1,28 +1,72 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import {
   CheckCircle2,
   MessageCircle,
   Phone,
   ArrowRight,
   Sparkles,
+  LayoutDashboard,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { ensureLoaded, getClient, listClientModules } from "@/lib/db/store";
+import { getModuleById } from "@/modules/registry";
 
 const DEMO_PHONE = "+33 7 XX XX XX XX";
 
-export default function OnboardingPage() {
+export default async function OnboardingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ clientId?: string }>;
+}) {
+  const params = await searchParams;
+  if (!params.clientId) redirect("/signup");
+
+  await ensureLoaded();
+  const client = getClient(params.clientId);
+  if (!client) redirect("/signup");
+
+  const cms = listClientModules(client.id).filter((cm) => cm.enabled);
+  const modules = cms
+    .map((cm) => getModuleById(cm.moduleId))
+    .filter((m): m is NonNullable<typeof m> => Boolean(m));
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-6 py-12">
       <div className="text-center">
-        <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-500">
+        <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600">
           <CheckCircle2 className="size-8" />
         </div>
         <h1 className="text-3xl font-bold">Paiement reçu, ton agent est prêt 🎉</h1>
         <p className="mt-2 text-muted-foreground">
-          Voici comment l&apos;activer en 30 secondes.
+          Bienvenue <strong>{client.name}</strong>. Voici ton activation en 30 secondes.
         </p>
       </div>
+
+      <Card className="border-primary/30 bg-primary/5">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Sparkles className="size-5" />
+            Tes modules actifs
+          </CardTitle>
+          <CardDescription>
+            {modules.length} compétence{modules.length > 1 ? "s" : ""} activée
+            {modules.length > 1 ? "s" : ""} pour ton agent
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap gap-2">
+            {modules.map((m) => (
+              <Badge key={m.id} variant="default" className="gap-1.5 px-2.5 py-1">
+                <CheckCircle2 className="size-3" />
+                {m.name}
+              </Badge>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -31,8 +75,7 @@ export default function OnboardingPage() {
             Étape 1 — Enregistre ce numéro WhatsApp
           </CardTitle>
           <CardDescription>
-            C&apos;est le numéro de ton agent personnel. Mets-le dans tes contacts
-            sous le nom de ton choix.
+            C&apos;est le numéro de ton agent personnel. Mets-le dans tes contacts.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -69,18 +112,18 @@ export default function OnboardingPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Sparkles className="size-5" />
-            Étape 3 — Apprends-lui ton métier
+            <LayoutDashboard className="size-5" />
+            Étape 3 — Accède à ton portail
           </CardTitle>
           <CardDescription>
-            Plus tu l&apos;utilises, plus il devient pertinent. Tu peux aussi lui
-            ajouter des compétences depuis ton dashboard.
+            Tu y verras tes statistiques, l&apos;historique de ton agent, et tu pourras
+            lancer des tâches comme la planification de tournées.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Button asChild className="w-full">
-            <Link href="/dashboard">
-              Aller à mon dashboard <ArrowRight className="size-4" />
+          <Button asChild className="w-full" size="lg">
+            <Link href={`/portal/${client.id}`}>
+              Aller à mon portail <ArrowRight className="size-4" />
             </Link>
           </Button>
         </CardContent>

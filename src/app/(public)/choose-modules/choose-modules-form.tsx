@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
-import { ArrowRight, Check } from "lucide-react";
+import { useState, useTransition } from "react";
+import { ArrowRight, Check, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { activateModulesAction } from "./actions";
 
 interface ModuleOption {
   id: string;
@@ -27,8 +27,16 @@ const CATEGORY_LABELS: Record<string, string> = {
   other: "Autres",
 };
 
-export function ChooseModulesForm({ modules }: { modules: ModuleOption[] }) {
+export function ChooseModulesForm({
+  modules,
+  clientId,
+}: {
+  modules: ModuleOption[];
+  clientId: string;
+}) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -42,6 +50,18 @@ export function ChooseModulesForm({ modules }: { modules: ModuleOption[] }) {
   const total = modules
     .filter((m) => selected.has(m.id))
     .reduce((sum, m) => sum + m.monthlyEUR, 0);
+
+  const handleSubmit = () => {
+    if (selected.size === 0) return;
+    setError(null);
+    const fd = new FormData();
+    fd.append("clientId", clientId);
+    fd.append("moduleIds", Array.from(selected).join(","));
+    startTransition(async () => {
+      const res = await activateModulesAction(fd);
+      if (res?.error) setError(res.error);
+    });
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -61,11 +81,9 @@ export function ChooseModulesForm({ modules }: { modules: ModuleOption[] }) {
               )}
             >
               <div className="flex items-start justify-between gap-2">
-                <div className="flex flex-col gap-1">
-                  <Badge variant="outline">
-                    {CATEGORY_LABELS[m.category] ?? m.category}
-                  </Badge>
-                </div>
+                <Badge variant="outline">
+                  {CATEGORY_LABELS[m.category] ?? m.category}
+                </Badge>
                 <div
                   className={cn(
                     "flex size-6 items-center justify-center rounded-full border",
@@ -92,6 +110,12 @@ export function ChooseModulesForm({ modules }: { modules: ModuleOption[] }) {
         })}
       </div>
 
+      {error ? (
+        <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+          {error}
+        </div>
+      ) : null}
+
       <Card className="sticky bottom-6 border-primary">
         <CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
           <div className="flex flex-col">
@@ -101,16 +125,20 @@ export function ChooseModulesForm({ modules }: { modules: ModuleOption[] }) {
             </span>
             <span className="text-2xl font-bold">{total} €/mois</span>
           </div>
-          <Button asChild size="lg" disabled={selected.size === 0}>
-            <Link
-              href={
-                selected.size === 0
-                  ? "#"
-                  : `/checkout?modules=${Array.from(selected).join(",")}`
-              }
-            >
-              Aller au paiement <ArrowRight className="size-4" />
-            </Link>
+          <Button
+            size="lg"
+            onClick={handleSubmit}
+            disabled={selected.size === 0 || pending}
+          >
+            {pending ? (
+              <>
+                <Loader2 className="size-4 animate-spin" /> Activation...
+              </>
+            ) : (
+              <>
+                Aller au paiement <ArrowRight className="size-4" />
+              </>
+            )}
           </Button>
         </CardContent>
       </Card>

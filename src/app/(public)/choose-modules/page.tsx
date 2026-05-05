@@ -1,7 +1,17 @@
+import { redirect } from "next/navigation";
 import { ChooseModulesForm } from "./choose-modules-form";
 import { MODULE_REGISTRY } from "@/modules/registry";
 
-export default function ChooseModulesPage() {
+export default async function ChooseModulesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ clientId?: string }>;
+}) {
+  const params = await searchParams;
+  if (!params.clientId) {
+    redirect("/signup");
+  }
+
   const modules = MODULE_REGISTRY.map((m) => ({
     id: m.id,
     name: m.name,
@@ -22,7 +32,7 @@ export default function ChooseModulesPage() {
         </p>
       </div>
 
-      <ChooseModulesForm modules={modules} />
+      <ChooseModulesForm modules={modules} clientId={params.clientId} />
     </div>
   );
 }
