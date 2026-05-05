@@ -57,15 +57,57 @@ export interface OptimizeRouteOutput {
 }
 
 /**
- * Géocodage déterministe mock (lat/lng stables par adresse).
- * À remplacer par un vrai appel Google Routes / Mapbox quand on aura la clé.
+ * Géocodage déterministe mock (fallback si api-adresse échoue).
  */
-function mockGeocode(address: string): { lat: number; lng: number } {
+function fallbackGeocode(address: string): { lat: number; lng: number } {
   const hash = createHash("sha256").update(address.toLowerCase().trim()).digest();
-  // France métropolitaine : lat 41-51, lng -5 à 9
   const lat = 41 + (hash[0] / 255) * 10;
   const lng = -5 + (hash[1] / 255) * 14;
   return { lat, lng };
+}
+
+/**
+ * Géocodage français via api-adresse.data.gouv.fr (BAN — gratuit, sans clé).
+ * Précis pour les adresses en France. Fallback sur le mock si erreur ou si pas FR.
+ */
+async function geocodeFr(address: string): Promise<{ lat: number; lng: number }> {
+  try {
+    const url = `https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(address)}&limit=1`;
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!res.ok) return fallbackGeocode(address);
+    const data = (await res.json()) as {
+      features?: Array<{
+        geometry?: { coordinates?: [number, number] };
+        properties?: { score?: number };
+      }>;
+    };
+    const first = data.features?.[0];
+    const coords = first?.geometry?.coordinates;
+    const score = first?.properties?.score ?? 0;
+    if (!coords || score < 0.3) return fallbackGeocode(address);
+    // BAN renvoie [lng, lat]
+    return { lng: coords[0], lat: coords[1] };
+  } catch {
+    return fallbackGeocode(address);
+  }
+}
+
+/** Geocoding en parallèle avec un cache simple par adresse. */
+async function batchGeocode<T extends { address: string; lat?: number; lng?: number }>(
+  items: T[],
+): Promise<T[]> {
+  const cache = new Map<string, { lat: number; lng: number }>();
+  const promises = items.map(async (item) => {
+    if (item.lat != null && item.lng != null) return item;
+    const cached = cache.get(item.address);
+    if (cached) return { ...item, lat: cached.lat, lng: cached.lng };
+    const coords = await geocodeFr(item.address);
+    cache.set(item.address, coords);
+    return { ...item, lat: coords.lat, lng: coords.lng };
+  });
+  return Promise.all(promises);
 }
 
 function haversineKm(
@@ -105,19 +147,18 @@ export const optimizeRouteTool: ToolDefinition<typeof inputSchema, OptimizeRoute
       input;
     const warnings: string[] = [];
 
-    // Géocode au besoin
-    const geocoded = appointments.map((a) => {
-      if (a.lat != null && a.lng != null) return a;
-      const { lat, lng } = mockGeocode(a.address);
-      return { ...a, lat, lng };
-    });
-    const salesGeocoded = sales.map((s) => {
-      if (s.homeLat != null && s.homeLng != null) return s;
-      const { lat, lng } = s.homeAddress
-        ? mockGeocode(s.homeAddress)
-        : { lat: 48.8566, lng: 2.3522 }; // Paris par défaut
-      return { ...s, homeLat: lat, homeLng: lng };
-    });
+    // Géocode en parallèle via BAN (api-adresse.data.gouv.fr)
+    const geocoded = await batchGeocode(appointments);
+
+    const salesGeocoded = await Promise.all(
+      sales.map(async (s) => {
+        if (s.homeLat != null && s.homeLng != null) return s;
+        const coords = s.homeAddress
+          ? await geocodeFr(s.homeAddress)
+          : { lat: 48.8566, lng: 2.3522 }; // Paris par défaut
+        return { ...s, homeLat: coords.lat, homeLng: coords.lng };
+      }),
+    );
 
     // Pré-affectation : si assignedToSalesId, on respecte ; sinon round-robin
     const buckets = new Map<string, typeof geocoded>();

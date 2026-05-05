@@ -14,6 +14,6 @@ export const config = {
      * - favicon.ico, sitemap.xml, robots.txt
      * - api routes (we'll protect those individually)
      */
-    "/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|api/health|api/test).*)",
+    "/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|api/health|api/test|api/portal).*)",
   ],
 };

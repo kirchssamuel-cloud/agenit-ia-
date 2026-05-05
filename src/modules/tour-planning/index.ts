@@ -1,4 +1,4 @@
-import { Map } from "lucide-react";
+import { Map as MapIcon } from "lucide-react";
 import { z } from "zod";
 import type { ModuleDefinition, ModuleRunResult } from "../types";
 import { optimizeRouteTool } from "@/agent/tools/optimize-route";
@@ -46,7 +46,7 @@ export const tourPlanningModule: ModuleDefinition<typeof configSchema> = {
   longDescription:
     "Récupère les RDV pris dans la journée, géocode les adresses, calcule les tournées optimales pour chaque commercial avec contrainte de temps de trajet maximum entre 2 RDV. Notifie chaque commercial par email du lendemain.",
   category: "scheduling",
-  icon: Map,
+  icon: MapIcon,
   version: "0.3.0",
   status: "alpha",
   pricing: { monthlyEUR: 79 },

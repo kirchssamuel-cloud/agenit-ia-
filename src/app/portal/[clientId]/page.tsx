@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import {
   Activity,
   CheckCircle2,
@@ -7,8 +8,11 @@ import {
   Clock,
   Sparkles,
   Building2,
+  Map as MapIcon,
+  ArrowRight,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -88,6 +92,31 @@ export default async function PortalPage({
         <h1 className="text-2xl font-semibold tracking-tight">
           Bonjour 👋 — voici ce que ton agent a fait pour toi cette semaine.
         </h1>
+
+        {/* Outils interactifs */}
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <Card className="border-primary/30 bg-primary/5 transition-colors hover:bg-primary/10">
+            <CardContent className="flex items-start gap-3 p-5">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
+                <MapIcon className="size-5" />
+              </div>
+              <div className="flex flex-1 flex-col gap-2">
+                <div>
+                  <h3 className="font-semibold">Planifier mes tournées</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Saisis tes RDV et tes commerciaux, l&apos;agent calcule la
+                    meilleure tournée pour chacun.
+                  </p>
+                </div>
+                <Button asChild size="sm">
+                  <Link href={`/portal/${client.id}/planning`}>
+                    Lancer <ArrowRight className="size-3.5" />
+                  </Link>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
         <div className="grid gap-4 md:grid-cols-4">
           <KPI
