@@ -7,16 +7,35 @@ import { sendEmailTool } from "./send-email";
 import { readGmailInboxTool } from "./read-gmail-inbox";
 import { pushIcall26Tool } from "./push-icall26";
 import { optimizeRouteTool } from "./optimize-route";
+import { readIcall26LeadsTool } from "./read-icall26-leads";
+import { readIcall26AppointmentsTool } from "./read-icall26-appointments";
+import { readIcall26SalesPerformanceTool } from "./read-icall26-sales-performance";
+import { rememberFactTool } from "./remember-fact";
+import { proposeLearningTool } from "./propose-learning";
+import { runModuleTool } from "./run-module";
 
 export const TOOL_REGISTRY: AnyTool[] = [
+  // Données
   parseCsvTool,
   parseXlsxTool,
   normalizePhonesTool,
   dedupRowsTool,
+  // Communication
   sendEmailTool,
-  readGmailInboxTool,
+  // Intégrations CRM (lecture)
+  readIcall26LeadsTool,
+  readIcall26AppointmentsTool,
+  readIcall26SalesPerformanceTool,
+  // Intégrations CRM (écriture)
   pushIcall26Tool,
+  // Intégrations externes
+  readGmailInboxTool,
+  // Utilitaire
   optimizeRouteTool,
+  runModuleTool,
+  // Méta — pour que l'agent s'améliore lui-même
+  rememberFactTool,
+  proposeLearningTool,
 ];
 
 const byId = new Map<string, AnyTool>(TOOL_REGISTRY.map((t) => [t.id, t]));

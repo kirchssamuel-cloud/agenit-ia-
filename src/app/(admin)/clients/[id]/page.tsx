@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Mail, Phone, Building2, Link2, CheckCircle2, History, CheckCircle, XCircle } from "lucide-react";
+import { ArrowLeft, Mail, Phone, Building2, Link2, CheckCircle2, History, CheckCircle, XCircle, Brain } from "lucide-react";
 import { AdminTopbar } from "@/components/admin/sidebar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { getClient, listClientModules, ensureLoaded } from "@/lib/db/store";
 import { getOAuthToken } from "@/lib/db/oauth";
 import { listRunsForClient } from "@/lib/db/runs";
+import { listClientFacts } from "@/lib/db/agent-brain";
 import { MODULE_REGISTRY, getModuleById } from "@/modules/registry";
 import { ModuleToggle } from "./module-toggle";
 
@@ -38,6 +39,19 @@ export default async function ClientDetailPage({
     runs = await listRunsForClient(id, 15);
   } catch {
     runs = [];
+  }
+
+  let facts: Awaited<ReturnType<typeof listClientFacts>> = [];
+  try {
+    facts = await listClientFacts(id);
+  } catch {
+    facts = [];
+  }
+  const factsByCategory = new Map<string, typeof facts>();
+  for (const f of facts) {
+    const arr = factsByCategory.get(f.category) ?? [];
+    arr.push(f);
+    factsByCategory.set(f.category, arr);
   }
 
   return (
@@ -135,6 +149,51 @@ export default async function ClientDetailPage({
                   </Button>
                 )}
               </div>
+            </CardContent>
+          </Card>
+
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Brain className="size-5" />
+                Mémoire de l&apos;agent
+                <Badge variant="secondary">{facts.length} fait{facts.length > 1 ? "s" : ""}</Badge>
+              </CardTitle>
+              <CardDescription>
+                Tout ce que l&apos;agent a appris sur ce client au fil des conversations.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {facts.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  L&apos;agent n&apos;a encore rien mémorisé. À chaque conversation, il
+                  apprend et stocke ici ce qui doit persister (préférences, tarifs, équipe,
+                  process).
+                </p>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {Array.from(factsByCategory.entries()).map(([cat, list]) => (
+                    <div key={cat}>
+                      <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        {cat}
+                      </h4>
+                      <ul className="flex flex-col gap-1">
+                        {list.map((f) => (
+                          <li key={f.id} className="flex items-start gap-2 text-sm">
+                            <span className="mt-1 size-1.5 shrink-0 rounded-full bg-primary" />
+                            <span className="flex-1">{f.fact}</span>
+                            {f.confidence < 0.8 ? (
+                              <Badge variant="outline" className="text-[10px]">
+                                à vérifier
+                              </Badge>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
 

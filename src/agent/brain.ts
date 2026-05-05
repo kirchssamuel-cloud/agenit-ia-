@@ -106,9 +106,19 @@ function buildToolMap(tools: AnyTool[]): Map<string, AnyTool> {
 // Sélection des tools dispo pour ce client
 // ============================================================
 
+/**
+ * Tools toujours disponibles pour l'agent, peu importe les modules activés.
+ * Permettent au cerveau de mémoriser, proposer des skills, et se réparer.
+ */
+const ALWAYS_AVAILABLE_TOOLS = new Set<string>([
+  "remember-fact",
+  "propose-learning",
+  "run-module",
+]);
+
 function getAvailableToolsForClient(clientId: string): AnyTool[] {
   const cms = listClientModules(clientId).filter((cm) => cm.enabled);
-  const allowedToolIds = new Set<string>();
+  const allowedToolIds = new Set<string>(ALWAYS_AVAILABLE_TOOLS);
   for (const cm of cms) {
     const mod = getModuleById(cm.moduleId);
     if (!mod) continue;

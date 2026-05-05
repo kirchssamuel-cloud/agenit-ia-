@@ -1,10 +1,12 @@
 import type { AnyModuleDefinition } from "./types";
 import { leadCleaningModule } from "./lead-cleaning";
 import { tourPlanningModule } from "./tour-planning";
+import { crmAssistantModule } from "./crm-assistant";
 
 export const MODULE_REGISTRY: AnyModuleDefinition[] = [
   leadCleaningModule,
   tourPlanningModule,
+  crmAssistantModule,
 ];
 
 export function getModuleById(id: string): AnyModuleDefinition | undefined {
