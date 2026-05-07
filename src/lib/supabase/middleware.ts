@@ -2,6 +2,22 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function updateSession(request: NextRequest) {
+  // Bypass dev : si Supabase pas encore configuré (placeholders), on laisse passer.
+  // Se désactive automatiquement dès que les vraies clés Supabase sont en place.
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+  // Active si les clés Supabase sont des placeholders OU absentes (démo Vercel preview).
+  // Se désactive automatiquement dès que les vraies clés Supabase sont en place.
+  const isDemoMode =
+    process.env.DEMO_MODE === "true" ||
+    supabaseUrl.includes("placeholder") ||
+    supabaseKey.includes("placeholder") ||
+    supabaseUrl === "" ||
+    supabaseKey === "";
+  if (isDemoMode) {
+    return NextResponse.next({ request });
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
