@@ -32,6 +32,12 @@ export interface ToolDefinition<
   inputSchema: TInput;
   /** Coût estimé pour reporting (cents). Optionnel. */
   costEstimateCents?: number;
+  /**
+   * Si true, l'Agent Superviseur doit valider l'appel avant exécution.
+   * Réservé aux actions à effet de bord critiques (envoi email, push CRM,
+   * paiement, modification définitive de données externes).
+   */
+  requiresSupervision?: boolean;
   execute: (input: z.infer<TInput>, ctx: ToolContext) => Promise<TOutput>;
 }
 

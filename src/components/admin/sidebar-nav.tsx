@@ -12,6 +12,7 @@ import {
   ScrollText,
   Receipt,
   PlayCircle,
+  Bot,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -30,10 +31,11 @@ const items: NavItem[] = [
   { href: "/modules", label: "Modules & Prix", icon: Boxes, group: "Catalogue" },
   { href: "/tools", label: "Compétences (tools)", icon: Wrench, group: "Catalogue" },
 
+  { href: "/agent-demo", label: "Démo Agent (chat)", icon: Bot, group: "Intelligence" },
   { href: "/education", label: "Éducation Agent", icon: GraduationCap, group: "Intelligence" },
   { href: "/performance", label: "Performance Agent", icon: TrendingUp, group: "Intelligence" },
   { href: "/logs", label: "Logs & Conversations", icon: ScrollText, group: "Intelligence" },
-  { href: "/playground", label: "Playground", icon: PlayCircle, group: "Intelligence" },
+  { href: "/playground", label: "Playground (modules)", icon: PlayCircle, group: "Intelligence" },
 ];
 
 export function SidebarNav() {
