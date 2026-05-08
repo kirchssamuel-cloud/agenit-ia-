@@ -1,12 +1,16 @@
 import { ensureLoaded, listClients } from "@/lib/db/store";
 import { listAllNumbers } from "@/lib/db/whatsapp";
+import { checkAllConnections } from "@/lib/whatsapp/connection-check";
 import { WhatsAppPoolUI } from "./pool-ui";
+
+export const dynamic = "force-dynamic";
 
 export default async function WhatsAppAdminPage() {
   await ensureLoaded();
-  const [numbers, clients] = await Promise.all([
+  const [numbers, clients, connections] = await Promise.all([
     listAllNumbers(),
     Promise.resolve(listClients()),
+    checkAllConnections(),
   ]);
 
   // Map clientId → name pour affichage
@@ -31,6 +35,7 @@ export default async function WhatsAppAdminPage() {
         numbers={numbersWithClient}
         clients={clients.map((c) => ({ id: c.id, name: c.name }))}
         stats={stats}
+        connections={connections}
       />
     </div>
   );
