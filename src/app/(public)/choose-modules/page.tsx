@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { ChooseModulesForm } from "./choose-modules-form";
-import { MODULE_REGISTRY } from "@/modules/registry";
+import { listModuleViews } from "@/lib/db/module-overrides";
 
 export default async function ChooseModulesPage({
   searchParams,
@@ -12,12 +12,14 @@ export default async function ChooseModulesPage({
     redirect("/signup");
   }
 
-  const modules = MODULE_REGISTRY.map((m) => ({
+  // Seuls les modules activés par l'admin sont visibles côté client.
+  const visibleModules = await listModuleViews({ onlyEnabled: true });
+  const modules = visibleModules.map((m) => ({
     id: m.id,
     name: m.name,
     shortDescription: m.shortDescription,
-    longDescription: m.longDescription ?? "",
-    monthlyEUR: m.pricing?.monthlyEUR ?? 0,
+    longDescription: m.longDescription,
+    monthlyEUR: m.monthlyEUR,
     category: m.category,
     status: m.status,
   }));
@@ -32,7 +34,14 @@ export default async function ChooseModulesPage({
         </p>
       </div>
 
-      <ChooseModulesForm modules={modules} clientId={params.clientId} />
+      {modules.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+          Aucun module disponible pour le moment. L&apos;administrateur n&apos;a
+          activé aucun module.
+        </div>
+      ) : (
+        <ChooseModulesForm modules={modules} clientId={params.clientId} />
+      )}
     </div>
   );
 }

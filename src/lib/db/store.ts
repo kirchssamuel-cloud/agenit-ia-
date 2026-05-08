@@ -89,9 +89,31 @@ async function refreshCache(): Promise<void> {
   cache.loaded = true;
 }
 
+/** True si les clés Supabase sont des placeholders (mode démo local). */
+function isSupabasePlaceholder(): boolean {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+  return (
+    url.includes("placeholder") ||
+    key.includes("placeholder") ||
+    url === "" ||
+    key === ""
+  );
+}
+
 export async function ensureLoaded(): Promise<void> {
   const cache = getCache();
   if (cache.loaded) return;
+
+  // Mode démo : Supabase pas encore configuré → on hydrate avec un cache vide
+  // pour permettre à l'UI admin de s'afficher sans erreur.
+  if (isSupabasePlaceholder()) {
+    cache.clients = [];
+    cache.clientModules = [];
+    cache.loaded = true;
+    return;
+  }
+
   if (!cache.loadingPromise) {
     cache.loadingPromise = refreshCache().finally(() => {
       cache.loadingPromise = null;
@@ -123,6 +145,18 @@ export function countClientsForModule(moduleId: string): number {
 export async function createClient(
   input: Omit<Client, "id" | "createdAt">,
 ): Promise<Client> {
+  // Mode démo : on crée un client en mémoire si Supabase pas branché.
+  if (isSupabasePlaceholder()) {
+    const cache = getCache();
+    const newClient: Client = {
+      id: `demo-${Math.random().toString(36).slice(2, 10)}`,
+      createdAt: new Date().toISOString(),
+      ...input,
+    };
+    cache.clients = [...cache.clients, newClient];
+    cache.loaded = true;
+    return newClient;
+  }
   const sb = createSupabaseAdminClient();
   const { data, error } = await sb
     .from("clients")
@@ -176,6 +210,27 @@ export async function setClientModuleEnabled(
   enabled: boolean,
   defaultConfig: Record<string, unknown> = {},
 ): Promise<ClientModule> {
+  // Mode démo : upsert en mémoire si Supabase pas branché.
+  if (isSupabasePlaceholder()) {
+    const cache = getCache();
+    const existing = cache.clientModules.find(
+      (cm) => cm.clientId === clientId && cm.moduleId === moduleId,
+    );
+    if (existing) {
+      existing.enabled = enabled;
+      return existing;
+    }
+    const created: ClientModule = {
+      clientId,
+      moduleId,
+      enabled,
+      config: defaultConfig,
+      enabledAt: new Date().toISOString(),
+    };
+    cache.clientModules = [...cache.clientModules, created];
+    return created;
+  }
+
   const sb = createSupabaseAdminClient();
 
   // Upsert
