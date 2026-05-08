@@ -31,6 +31,12 @@ import {
   type SectorId,
   SECTOR_REGISTRY,
 } from "./sector-detector";
+import {
+  SKILL_REGISTRY,
+  getSkillByToolId,
+  type SkillFolder,
+} from "./skills/registry";
+import { getInstruction } from "@/lib/db/skill-instructions";
 
 // ============================================================
 // Types
@@ -148,6 +154,14 @@ function getAvailableToolsForClient(clientId: string): AnyTool[] {
 // Construction du system prompt
 // ============================================================
 
+interface SkillInstructionBlock {
+  skill: SkillFolder;
+  /** Texte d'instruction (custom écrit par l'admin OU défaut du registry) */
+  text: string;
+  /** True si l'admin a écrit ses propres instructions */
+  customized: boolean;
+}
+
 function buildSystemPrompt(opts: {
   clientName: string;
   industry?: string;
@@ -157,6 +171,8 @@ function buildSystemPrompt(opts: {
   relevantMemories: MemoryEntry[];
   /** Profil enrichi du client (secteur, ton, prefs) */
   context: ClientContext | null;
+  /** Instructions par compétence (custom de l'admin ou défauts) */
+  skillInstructions: SkillInstructionBlock[];
 }): string {
   const lines: string[] = [];
   const ctxSector = opts.context?.sector ?? opts.industry;
@@ -202,6 +218,24 @@ function buildSystemPrompt(opts: {
       lines.push(`- **${s.name}** : ${s.description ?? "—"}`);
       if (s.triggerPattern) lines.push(`  Déclencheur : ${s.triggerPattern}`);
       if (s.actionTemplate) lines.push(`  Action : ${s.actionTemplate}`);
+    }
+  }
+
+  // Instructions par dossier de compétence (custom écrites par l'admin
+  // dans /admin/tools, ou défauts du registry sinon).
+  // On filtre aux skills DONT le client a au moins 1 tool actif.
+  if (opts.skillInstructions.length > 0) {
+    lines.push("");
+    lines.push("# Comment utiliser tes compétences (instructions de ton patron)");
+    lines.push(
+      "(Ces consignes prévalent sur tes raisonnements par défaut. Si elles entrent en contradiction avec une demande client, demande confirmation.)",
+    );
+    for (const block of opts.skillInstructions) {
+      lines.push("");
+      lines.push(
+        `## ${block.skill.emoji} ${block.skill.name}${block.customized ? " (personnalisé par l'admin)" : ""}`,
+      );
+      lines.push(block.text);
     }
   }
 
@@ -368,7 +402,50 @@ export async function chatWithAgent(input: BrainChatInput): Promise<BrainChatOut
     content: input.userMessage,
   });
 
-  // 4. Construire system + messages + tools
+  // 4. Charger les tools dispo pour ce client + déterminer les skills concernées
+  const availableTools = getAvailableToolsForClient(input.clientId);
+  const toolMap = buildToolMap(availableTools);
+  const claudeTools: Anthropic.Tool[] = availableTools.map(toolToClaudeFormat);
+
+  // 4b. Pour chaque skill ayant au moins 1 tool actif, charger les instructions
+  //     custom écrites par l'admin (ou le défaut du registry sinon).
+  //     Ces instructions sont injectées dans le system prompt.
+  const activeSkillIds = new Set<string>();
+  for (const t of availableTools) {
+    const skill = getSkillByToolId(t.id);
+    if (skill) activeSkillIds.add(skill.id);
+  }
+  const skillInstructions: SkillInstructionBlock[] = [];
+  for (const skillId of activeSkillIds) {
+    const skill = SKILL_REGISTRY.find((s) => s.id === skillId);
+    if (!skill) continue;
+    try {
+      const custom = await getInstruction(skillId);
+      if (custom && custom.text.trim().length > 0) {
+        skillInstructions.push({
+          skill,
+          text: custom.text,
+          customized: custom.customized,
+        });
+      } else {
+        // Pas d'instruction custom → utiliser le défaut du registry
+        skillInstructions.push({
+          skill,
+          text: skill.defaultInstructions,
+          customized: false,
+        });
+      }
+    } catch {
+      // Best-effort : si la lecture échoue, fallback sur le défaut
+      skillInstructions.push({
+        skill,
+        text: skill.defaultInstructions,
+        customized: false,
+      });
+    }
+  }
+
+  // 5. Construire system prompt + messages
   const systemPrompt = buildSystemPrompt({
     clientName: client.name,
     industry: client.industry,
@@ -376,16 +453,13 @@ export async function chatWithAgent(input: BrainChatInput): Promise<BrainChatOut
     facts,
     relevantMemories,
     context,
+    skillInstructions,
   });
 
   const claudeMessages: Anthropic.MessageParam[] = [
     ...dbMessagesToClaudeMessages(history),
     { role: "user", content: input.userMessage },
   ];
-
-  const availableTools = getAvailableToolsForClient(input.clientId);
-  const toolMap = buildToolMap(availableTools);
-  const claudeTools: Anthropic.Tool[] = availableTools.map(toolToClaudeFormat);
 
   // 5. Boucle agent : tool use loop
   const anthropic = new Anthropic({ apiKey });
