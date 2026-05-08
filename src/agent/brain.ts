@@ -523,22 +523,50 @@ export async function chatWithAgent(input: BrainChatInput): Promise<BrainChatOut
     (totalTokensIn / 1_000_000) * 500 + (totalTokensOut / 1_000_000) * 2_500,
   );
 
-  // Persiste l'échange dans la mémoire vectorielle pour les prochaines conversations.
-  // Best-effort : si ça échoue (Supabase down, OpenAI quota), on ne bloque pas la réponse.
-  void storeMemory({
-    clientId: input.clientId,
-    type: "conversation",
-    content: `User : ${input.userMessage}\nAgent : ${assistantText || "(pas de réponse)"}`,
-    metadata: {
-      conversationId: conversation.id,
-      channel: input.channel ?? "web",
-      toolUses: toolUses.map((tu) => tu.toolName),
-      costCents,
-    },
-    importance: toolUses.length > 0 ? 0.7 : 0.5,
-  }).catch((err) => {
+  // ============================================================
+  // Persistance mémoire vectorielle (3 entrées par échange)
+  // ============================================================
+  // On stocke 3 souvenirs distincts pour chaque échange afin de maximiser
+  // la qualité du RAG :
+  //   1. user_message  → permet de retrouver des questions similaires
+  //   2. agent_response → permet de retrouver des réponses passées
+  //   3. conversation  → l'échange combiné pour le contexte chronologique
+  //
+  // Best-effort : si ça échoue (Supabase down, OpenAI quota), on ne bloque
+  // pas la réponse. On lance les 3 en parallèle pour minimiser la latence.
+  // ============================================================
+  const baseMeta = {
+    conversationId: conversation.id,
+    channel: input.channel ?? "web",
+    costCents,
+  };
+  const memoryWrites = Promise.all([
+    storeMemory({
+      clientId: input.clientId,
+      type: "user_message",
+      content: input.userMessage,
+      metadata: baseMeta,
+      importance: 0.5,
+    }),
+    storeMemory({
+      clientId: input.clientId,
+      type: "agent_response",
+      content: assistantText || "(pas de réponse)",
+      metadata: { ...baseMeta, toolUses: toolUses.map((tu) => tu.toolName) },
+      importance: toolUses.length > 0 ? 0.7 : 0.5,
+    }),
+    storeMemory({
+      clientId: input.clientId,
+      type: "conversation",
+      content: `User : ${input.userMessage}\nAgent : ${assistantText || "(pas de réponse)"}`,
+      metadata: { ...baseMeta, toolUses: toolUses.map((tu) => tu.toolName) },
+      importance: toolUses.length > 0 ? 0.7 : 0.5,
+    }),
+  ]).catch((err) => {
     console.error(`[brain] storeMemory échec : ${(err as Error).message}`);
   });
+  // Fire-and-forget : on ne await pas la persistance pour ne pas ralentir la réponse.
+  void memoryWrites;
 
   return {
     conversationId: conversation.id,
