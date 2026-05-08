@@ -24,6 +24,8 @@ export const sendEmailTool: ToolDefinition<typeof inputSchema, SendEmailOutput> 
   exposedToLLM: true,
   inputSchema,
   costEstimateCents: 1,
+  // Effet de bord externe (envoi réel) → validation superviseur obligatoire.
+  requiresSupervision: true,
   execute: async (input, ctx) => {
     const apiKey = process.env.RESEND_API_KEY;
     if (!apiKey) {

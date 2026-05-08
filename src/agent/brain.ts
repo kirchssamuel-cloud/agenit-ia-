@@ -16,6 +16,14 @@ import {
 import { listSkills, type AgentSkill } from "@/lib/db/agent-skills";
 import { ensureLoaded, getClient, listClientModules } from "@/lib/db/store";
 import { MODULE_REGISTRY, getModuleById } from "@/modules/registry";
+import {
+  retrieveMemories,
+  storeMemory,
+  getClientContext,
+  type MemoryEntry,
+  type ClientContext,
+} from "@/lib/db/agent-memory";
+import { superviseToolCall } from "./supervisor";
 
 // ============================================================
 // Types
@@ -138,20 +146,36 @@ function buildSystemPrompt(opts: {
   industry?: string;
   skills: AgentSkill[];
   facts: Awaited<ReturnType<typeof listClientFacts>>;
+  /** Souvenirs pertinents retrouvés par recherche sémantique */
+  relevantMemories: MemoryEntry[];
+  /** Profil enrichi du client (secteur, ton, prefs) */
+  context: ClientContext | null;
 }): string {
   const lines: string[] = [];
+  const ctxSector = opts.context?.sector ?? opts.industry;
   lines.push(
-    `Tu es l'agent IA personnel de ${opts.clientName}${opts.industry ? ` (secteur : ${opts.industry})` : ""}.`,
+    `Tu es l'agent IA personnel de ${opts.clientName}${ctxSector ? ` (secteur : ${ctxSector})` : ""}.`,
   );
   lines.push("");
   lines.push("Ton rôle : aider le client à exécuter ses tâches métier en utilisant les outils à ta disposition.");
   lines.push("");
   lines.push("Règles :");
-  lines.push("- Réponds en français, ton chaleureux mais professionnel.");
+  const tone = opts.context?.tone ?? "professionnel";
+  lines.push(`- Réponds en français, ton ${tone}.`);
   lines.push("- Utilise les tools quand c'est pertinent (ne demande pas la permission, agis).");
   lines.push("- Si tu manques d'info, demande au client.");
   lines.push("- Confirme toujours les actions critiques (envoi d'email, push CRM) avant de les faire.");
   lines.push("- Garde tes réponses concises (sauf si l'user demande des détails).");
+
+  // Préférences explicites du client
+  const prefs = opts.context?.preferences;
+  if (prefs && Object.keys(prefs).length > 0) {
+    lines.push("");
+    lines.push("# Préférences de ce client");
+    for (const [k, v] of Object.entries(prefs)) {
+      lines.push(`- ${k} : ${typeof v === "string" ? v : JSON.stringify(v)}`);
+    }
+  }
 
   if (opts.skills.length > 0) {
     lines.push("");
@@ -165,9 +189,22 @@ function buildSystemPrompt(opts: {
 
   if (opts.facts.length > 0) {
     lines.push("");
-    lines.push("# Ce que tu sais sur ce client (mémoire long-terme)");
+    lines.push("# Faits que tu sais sur ce client (mémoire long-terme)");
     for (const f of opts.facts) {
       lines.push(`- [${f.category}] ${f.fact}`);
+    }
+  }
+
+  // Souvenirs pertinents retrouvés sémantiquement (RAG)
+  if (opts.relevantMemories.length > 0) {
+    lines.push("");
+    lines.push("# Souvenirs pertinents pour cette conversation");
+    lines.push(
+      "(retrouvés par recherche sémantique sur l'historique de ce client)",
+    );
+    for (const m of opts.relevantMemories) {
+      const sim = m.similarity !== undefined ? ` ~${m.similarity.toFixed(2)}` : "";
+      lines.push(`- [${m.type}${sim}] ${m.content}`);
     }
   }
 
@@ -259,11 +296,19 @@ export async function chatWithAgent(input: BrainChatInput): Promise<BrainChatOut
     );
   }
 
-  // 2. Charger contexte
-  const [skills, facts, history] = await Promise.all([
+  // 2. Charger contexte (skills + facts + history + souvenirs sémantiques + profil)
+  const [skills, facts, history, relevantMemories, context] = await Promise.all([
     listSkills().catch(() => [] as AgentSkill[]),
     listClientFacts(input.clientId).catch(() => []),
     listMessages(conversation.id, 30),
+    // RAG : top-K souvenirs sémantiquement proches du message user
+    retrieveMemories({
+      clientId: input.clientId,
+      query: input.userMessage,
+      limit: 8,
+      matchThreshold: 0.7,
+    }).catch(() => [] as MemoryEntry[]),
+    getClientContext(input.clientId).catch(() => null),
   ]);
 
   // 3. Append le message user en DB
@@ -279,6 +324,8 @@ export async function chatWithAgent(input: BrainChatInput): Promise<BrainChatOut
     industry: client.industry,
     skills,
     facts,
+    relevantMemories,
+    context,
   });
 
   const claudeMessages: Anthropic.MessageParam[] = [
@@ -388,6 +435,42 @@ export async function chatWithAgent(input: BrainChatInput): Promise<BrainChatOut
 
       try {
         const validated = tool.inputSchema.parse(tc.input);
+
+        // Phase 2 : Agent Superviseur — validation pré-action pour les tools
+        // critiques (send-email, push-icall26, etc.)
+        if (tool.requiresSupervision) {
+          const decision = await superviseToolCall({
+            clientId: input.clientId,
+            conversationId: conversation.id,
+            toolId: tool.id,
+            toolName: tool.name,
+            toolDescription: tool.description,
+            input: validated,
+            userMessage: input.userMessage,
+          });
+          if (!decision.approved) {
+            const rejectMsg = `[SUPERVISEUR REJETTE] ${decision.reason ?? "raison non précisée"}. Reformule avec correction puis réessaye.`;
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: tc.id,
+              content: rejectMsg,
+              is_error: true,
+            });
+            dbToolResults.push({
+              tool_use_id: tc.id,
+              content: rejectMsg,
+              is_error: true,
+            });
+            toolUses.push({
+              toolName: tc.name,
+              input: tc.input,
+              output: rejectMsg,
+              isError: true,
+            });
+            continue;
+          }
+        }
+
         const output = await tool.execute(validated, ctx);
         const outputStr = JSON.stringify(output, null, 2);
         toolResults.push({
@@ -439,6 +522,23 @@ export async function chatWithAgent(input: BrainChatInput): Promise<BrainChatOut
   const costCents = Math.round(
     (totalTokensIn / 1_000_000) * 500 + (totalTokensOut / 1_000_000) * 2_500,
   );
+
+  // Persiste l'échange dans la mémoire vectorielle pour les prochaines conversations.
+  // Best-effort : si ça échoue (Supabase down, OpenAI quota), on ne bloque pas la réponse.
+  void storeMemory({
+    clientId: input.clientId,
+    type: "conversation",
+    content: `User : ${input.userMessage}\nAgent : ${assistantText || "(pas de réponse)"}`,
+    metadata: {
+      conversationId: conversation.id,
+      channel: input.channel ?? "web",
+      toolUses: toolUses.map((tu) => tu.toolName),
+      costCents,
+    },
+    importance: toolUses.length > 0 ? 0.7 : 0.5,
+  }).catch((err) => {
+    console.error(`[brain] storeMemory échec : ${(err as Error).message}`);
+  });
 
   return {
     conversationId: conversation.id,

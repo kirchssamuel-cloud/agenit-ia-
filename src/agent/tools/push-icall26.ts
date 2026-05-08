@@ -24,6 +24,8 @@ export const pushIcall26Tool: ToolDefinition<typeof inputSchema, PushIcall26Outp
   category: "integration",
   exposedToLLM: false,
   inputSchema,
+  // Push réel dans le CRM → action irréversible, validation superviseur.
+  requiresSupervision: true,
   execute: async ({ rows, columnMapping, campaignId }, ctx) => {
     const apiKey = process.env.ICALL26_API_KEY;
     const apiUrl = process.env.ICALL26_API_URL;
