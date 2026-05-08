@@ -2,8 +2,15 @@ import { NextResponse, type NextRequest } from "next/server";
 import {
   retrieveMemories,
   storeMemory,
+  getClientContext,
+  upsertClientContext,
   type MemoryEntry,
 } from "@/lib/db/agent-memory";
+import {
+  detectSector,
+  SECTOR_REGISTRY,
+  type SectorId,
+} from "@/agent/sector-detector";
 
 /**
  * Route /api/agent/demo — endpoint démo qui simule le comportement de l'agent
@@ -41,6 +48,17 @@ interface DemoResponse {
     reason: string;
     confidence: number;
   }>;
+  /** Détection automatique du secteur métier (1er message uniquement) */
+  sectorDetection?: {
+    sector: SectorId;
+    sectorName: string;
+    confidence: number;
+    reason: string;
+    llmDetected: boolean;
+    isFirstMessage: boolean;
+  };
+  /** Secteur courant du client (s'il est défini) */
+  clientSector?: { id: SectorId; name: string };
   /** True si on est en mode démo (pas de vraies clés API) */
   isDemoMode: boolean;
   durationMs: number;
@@ -183,13 +201,43 @@ export async function POST(request: NextRequest) {
 
   const demoMode = isDemoMode();
 
-  // Recherche sémantique : marche en démo (cosine en RAM) ou en prod (pgvector).
-  const retrieved = await retrieveMemories({
-    clientId: body.clientId,
-    query: body.message,
-    limit: 5,
-    matchThreshold: 0.5, // un peu plus large pour la démo
-  }).catch(() => [] as MemoryEntry[]);
+  // Recherche sémantique + chargement contexte client (secteur si déjà défini)
+  const [retrieved, existingContext] = await Promise.all([
+    retrieveMemories({
+      clientId: body.clientId,
+      query: body.message,
+      limit: 5,
+      matchThreshold: 0.5,
+    }).catch(() => [] as MemoryEntry[]),
+    getClientContext(body.clientId).catch(() => null),
+  ]);
+
+  // ÉTAPE 1.3 : Auto-détection de secteur au 1er message
+  // (si pas encore défini ET aucun souvenir précédent → c'est le 1er message)
+  let sectorDetectionResult: DemoResponse["sectorDetection"] = undefined;
+  let currentSectorId: SectorId | undefined = existingContext?.sector as
+    | SectorId
+    | undefined;
+  const isFirstMessage = retrieved.length === 0 && !existingContext?.sector;
+  if (isFirstMessage) {
+    const detection = await detectSector(body.message);
+    if (detection.sector !== "autre" && detection.confidence > 0.4) {
+      currentSectorId = detection.sector;
+      // Persiste le secteur détecté pour les prochains messages
+      await upsertClientContext({
+        clientId: body.clientId,
+        sector: detection.sector,
+      }).catch(() => undefined);
+    }
+    sectorDetectionResult = {
+      sector: detection.sector,
+      sectorName: SECTOR_REGISTRY[detection.sector].name,
+      confidence: detection.confidence,
+      reason: detection.reason,
+      llmDetected: detection.llmDetected,
+      isFirstMessage: true,
+    };
+  }
 
   // Réponse agent (stubbée pour la démo)
   const assistantMessage = stubAgentResponse(body.message, retrieved);
@@ -227,6 +275,13 @@ export async function POST(request: NextRequest) {
       importance: m.importance,
     })),
     supervisorDecisions,
+    sectorDetection: sectorDetectionResult,
+    clientSector: currentSectorId
+      ? {
+          id: currentSectorId,
+          name: SECTOR_REGISTRY[currentSectorId].name,
+        }
+      : undefined,
     isDemoMode: demoMode,
     durationMs: Date.now() - t0,
   };

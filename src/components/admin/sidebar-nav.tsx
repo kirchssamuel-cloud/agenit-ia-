@@ -30,7 +30,7 @@ const items: NavItem[] = [
   { href: "/billing", label: "Facturation", icon: Receipt, group: "Pilotage" },
 
   { href: "/modules", label: "Modules & Prix", icon: Boxes, group: "Catalogue" },
-  { href: "/tools", label: "Compétences (tools)", icon: Wrench, group: "Catalogue" },
+  { href: "/tools", label: "Compétences", icon: Wrench, group: "Catalogue" },
   { href: "/whatsapp", label: "Pool WhatsApp", icon: MessageCircle, group: "Catalogue" },
 
   { href: "/agent-demo", label: "Démo Agent (chat)", icon: Bot, group: "Intelligence" },

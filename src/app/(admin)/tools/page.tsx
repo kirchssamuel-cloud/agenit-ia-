@@ -1,71 +1,60 @@
-import { AdminTopbar } from "@/components/admin/sidebar";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { SKILL_REGISTRY } from "@/agent/skills/registry";
 import { TOOL_REGISTRY } from "@/agent/tools/registry";
 import { MODULE_REGISTRY } from "@/modules/registry";
+import { getAllInstructions } from "@/lib/db/skill-instructions";
+import { SkillsUI } from "./skills-ui";
 
-const CATEGORY_LABELS: Record<string, string> = {
-  data: "Données",
-  communication: "Communication",
-  integration: "Intégration",
-  documents: "Documents",
-  ai: "IA",
-  utility: "Utilitaire",
-};
+export default async function SkillsPage() {
+  const customInstructions = await getAllInstructions();
 
-export default function ToolsPage() {
-  // Pour chaque tool : par quels modules est-il utilisé
-  const usedBy = new Map<string, string[]>();
+  // Map tool ID → tool meta (pour afficher le nom + description)
+  const toolById = new Map(TOOL_REGISTRY.map((t) => [t.id, t]));
+
+  // Map tool ID → modules qui l'utilisent
+  const modulesByToolId = new Map<string, string[]>();
   for (const m of MODULE_REGISTRY) {
     for (const tid of m.tools) {
-      const arr = usedBy.get(tid) ?? [];
+      const arr = modulesByToolId.get(tid) ?? [];
       arr.push(m.name);
-      usedBy.set(tid, arr);
+      modulesByToolId.set(tid, arr);
     }
   }
 
+  // Construire le payload pour le composant client
+  const skills = SKILL_REGISTRY.map((s) => {
+    const customInst = customInstructions[s.id];
+    return {
+      id: s.id,
+      name: s.name,
+      description: s.description,
+      emoji: s.emoji,
+      category: s.category,
+      uiColor: s.uiColor,
+      useCases: s.useCases,
+      tools: s.toolIds
+        .map((tid) => {
+          const t = toolById.get(tid);
+          if (!t) return null;
+          return {
+            id: t.id,
+            name: t.name,
+            description: t.description,
+            exposedToLLM: t.exposedToLLM,
+            usedByModules: modulesByToolId.get(t.id) ?? [],
+          };
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null),
+      // Instruction effective : custom si écrite, sinon défaut du registry
+      instructionText: customInst?.text ?? s.defaultInstructions,
+      isCustomized: customInst?.customized ?? false,
+      defaultInstructions: s.defaultInstructions,
+      updatedAt: customInst?.updatedAt ?? null,
+    };
+  });
+
   return (
-    <>
-      <AdminTopbar
-        title="Compétences de l'agent (tools)"
-        description="Briques atomiques que l'agent sait exécuter. Les modules vendus aux clients sont des combinaisons de ces tools."
-      />
-      <div className="flex flex-col gap-6 p-8">
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {TOOL_REGISTRY.map((t) => {
-            const consumers = usedBy.get(t.id) ?? [];
-            return (
-              <Card key={t.id}>
-                <CardHeader>
-                  <div className="flex items-start justify-between gap-2">
-                    <CardTitle className="text-base">{t.name}</CardTitle>
-                    <Badge variant="outline">{CATEGORY_LABELS[t.category] ?? t.category}</Badge>
-                  </div>
-                  <CardDescription>{t.description}</CardDescription>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-2 text-xs text-muted-foreground">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono">{t.id}</span>
-                    {t.exposedToLLM ? (
-                      <Badge variant="secondary">exposé au LLM</Badge>
-                    ) : (
-                      <Badge variant="outline">interne</Badge>
-                    )}
-                  </div>
-                  <div>
-                    Utilisé par :{" "}
-                    {consumers.length === 0 ? (
-                      <span>aucun module pour le moment</span>
-                    ) : (
-                      consumers.join(", ")
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      </div>
-    </>
+    <div className="p-6">
+      <SkillsUI skills={skills} />
+    </div>
   );
 }
