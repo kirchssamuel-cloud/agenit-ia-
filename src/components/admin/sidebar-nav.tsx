@@ -13,6 +13,7 @@ import {
   Receipt,
   PlayCircle,
   Bot,
+  MessageCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +31,7 @@ const items: NavItem[] = [
 
   { href: "/modules", label: "Modules & Prix", icon: Boxes, group: "Catalogue" },
   { href: "/tools", label: "Compétences (tools)", icon: Wrench, group: "Catalogue" },
+  { href: "/whatsapp", label: "Pool WhatsApp", icon: MessageCircle, group: "Catalogue" },
 
   { href: "/agent-demo", label: "Démo Agent (chat)", icon: Bot, group: "Intelligence" },
   { href: "/education", label: "Éducation Agent", icon: GraduationCap, group: "Intelligence" },
