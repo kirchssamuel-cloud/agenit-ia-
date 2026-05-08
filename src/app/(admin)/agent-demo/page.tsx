@@ -1,4 +1,3 @@
-import { AdminTopbar } from "@/components/admin/sidebar";
 import { ensureLoaded, listClients } from "@/lib/db/store";
 import { AgentDemoUI } from "./agent-demo-ui";
 
@@ -21,17 +20,16 @@ export default async function AgentDemoPage() {
             name: "Solaris Énergie (démo)",
             industry: "Régie panneaux solaires",
           },
+          {
+            id: "demo-client-2",
+            name: "Helios Habitat (démo)",
+            industry: "Régie panneaux solaires",
+          },
         ];
 
   return (
-    <>
-      <AdminTopbar
-        title="Démo Agent — Chat live"
-        description="Discute avec l'agent IA pour démontrer la mémoire vectorielle (RAG) et l'agent superviseur. Affiche en temps réel les souvenirs retrouvés et les décisions de validation."
-      />
-      <div className="p-6">
-        <AgentDemoUI clients={clientsWithFallback} />
-      </div>
-    </>
+    <div className="p-6">
+      <AgentDemoUI clients={clientsWithFallback} />
+    </div>
   );
 }
