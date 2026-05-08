@@ -8,6 +8,7 @@ import {
   type WhatsAppNumberStatus,
 } from "@/lib/db/whatsapp";
 import { provisionAgentForClient } from "@/lib/whatsapp/number-manager";
+import { sendWhatsAppMessage } from "@/lib/whatsapp/twilio-client";
 
 /**
  * Server actions pour /admin/whatsapp.
@@ -91,4 +92,55 @@ export async function manualAssignAction(formData: FormData): Promise<{
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }
+}
+
+/**
+ * Test envoi : envoie un WhatsApp depuis le numéro pool vers le téléphone perso
+ * pour vérifier que Twilio est bien branché.
+ */
+export async function sendTestMessageAction(formData: FormData): Promise<{
+  ok: boolean;
+  error?: string;
+  sid?: string;
+  realApiCall?: boolean;
+}> {
+  const fromPhone = String(formData.get("fromPhone") ?? "").trim();
+  const toPhone = String(formData.get("toPhone") ?? "").trim();
+  const body =
+    String(formData.get("body") ?? "").trim() ||
+    "Hello depuis ton agent IA 👋 Si tu lis ça, Twilio est correctement branché !";
+
+  if (!fromPhone.match(/^\+\d{8,15}$/)) {
+    return {
+      ok: false,
+      error: "Numéro source invalide. Format E.164 attendu (+33...).",
+    };
+  }
+  if (!toPhone.match(/^\+\d{8,15}$/)) {
+    return {
+      ok: false,
+      error: "Numéro destination invalide. Format E.164 attendu.",
+    };
+  }
+
+  const result = await sendWhatsAppMessage({
+    from: fromPhone,
+    to: toPhone,
+    body,
+  });
+
+  if (result.status === "failed") {
+    return {
+      ok: false,
+      error: `${result.errorCode ?? "FAILED"}: ${result.errorMessage ?? "envoi échoué"}`,
+      sid: result.sid,
+      realApiCall: result.realApiCall,
+    };
+  }
+
+  return {
+    ok: true,
+    sid: result.sid,
+    realApiCall: result.realApiCall,
+  };
 }

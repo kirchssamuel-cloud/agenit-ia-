@@ -2,13 +2,17 @@
 
 import { useState, useTransition } from "react";
 import {
+  AlertCircle,
+  CheckCircle2,
   Loader2,
   MessageCircle,
   Plus,
   RefreshCw,
+  Send,
   ShieldAlert,
   Sparkles,
   UserCheck,
+  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -16,9 +20,11 @@ import {
   importNumberAction,
   manualAssignAction,
   releaseNumberAction,
+  sendTestMessageAction,
   setStatusAction,
 } from "./actions";
 import type { WhatsAppNumberStatus } from "@/lib/db/whatsapp";
+import type { ServiceStatus } from "@/lib/whatsapp/connection-check";
 
 interface NumberRow {
   id: string;
@@ -46,14 +52,22 @@ interface Stats {
   suspended: number;
 }
 
+interface Connections {
+  twilio: ServiceStatus;
+  anthropic: ServiceStatus;
+  supabase: ServiceStatus;
+}
+
 export function WhatsAppPoolUI({
   numbers,
   clients,
   stats,
+  connections,
 }: {
   numbers: NumberRow[];
   clients: ClientOption[];
   stats: Stats;
+  connections: Connections;
 }) {
   const [, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -95,6 +109,28 @@ export function WhatsAppPoolUI({
           </p>
         </div>
       </header>
+
+      {/* STATUS CONNEXION (vert/rouge selon clés configurées) */}
+      <div className="grid gap-3 sm:grid-cols-3">
+        <ServiceStatusCard
+          name="Twilio"
+          subtitle="Envoi/réception WhatsApp"
+          status={connections.twilio}
+        />
+        <ServiceStatusCard
+          name="Anthropic"
+          subtitle="Cerveau de l'agent (Claude)"
+          status={connections.anthropic}
+        />
+        <ServiceStatusCard
+          name="Supabase"
+          subtitle="Persistance DB"
+          status={connections.supabase}
+        />
+      </div>
+
+      {/* TEST D'ENVOI RAPIDE (pour valider Twilio en 1 clic) */}
+      <TestSendCard numbers={numbers} />
 
       {/* STATS */}
       <div className="grid gap-4 sm:grid-cols-4">
@@ -462,5 +498,190 @@ function ManualAssignForm({ clients }: { clients: ClientOption[] }) {
         {pending ? <Loader2 className="size-4 animate-spin" /> : "Attribuer"}
       </button>
     </form>
+  );
+}
+
+// ============================================================
+// Status connexion service (Twilio / Anthropic / Supabase)
+// ============================================================
+
+function ServiceStatusCard({
+  name,
+  subtitle,
+  status,
+}: {
+  name: string;
+  subtitle: string;
+  status: ServiceStatus;
+}) {
+  let icon: React.ReactNode;
+  let borderClass = "";
+  let label = "";
+  let labelClass = "";
+
+  if (!status.configured) {
+    icon = <AlertCircle className="size-5 text-amber-400" />;
+    borderClass = "border-amber-500/30 bg-amber-500/5";
+    label = "Non configuré";
+    labelClass = "text-amber-400";
+  } else if (status.reachable === false) {
+    icon = <XCircle className="size-5 text-destructive" />;
+    borderClass = "border-destructive/30 bg-destructive/5";
+    label = "Erreur connexion";
+    labelClass = "text-destructive";
+  } else if (status.reachable === true) {
+    icon = <CheckCircle2 className="size-5 text-emerald-400" />;
+    borderClass = "border-emerald-500/30 bg-emerald-500/5";
+    label = "Connecté";
+    labelClass = "text-emerald-400";
+  } else {
+    icon = <AlertCircle className="size-5 text-muted-foreground" />;
+    borderClass = "border-border";
+    label = "Inconnu";
+    labelClass = "text-muted-foreground";
+  }
+
+  return (
+    <div className={cn("rounded-[20px] border p-5 backdrop-blur", borderClass)}>
+      <div className="flex items-start gap-3">
+        {icon}
+        <div className="flex flex-1 flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <span className="font-heading font-semibold">{name}</span>
+            <span
+              className={cn(
+                "rounded-full px-2 py-0.5 text-[10px] font-mono font-semibold uppercase tracking-wider",
+                labelClass,
+              )}
+            >
+              {label}
+            </span>
+          </div>
+          <span className="text-xs text-muted-foreground">{subtitle}</span>
+          {status.error ? (
+            <span className="mt-1 line-clamp-2 text-[10px] font-mono text-destructive">
+              {status.error}
+            </span>
+          ) : null}
+          {status.details ? (
+            <span className="mt-1 text-[10px] text-muted-foreground">
+              {status.details}
+            </span>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// Carte test envoi (vérifier Twilio sans attendre un message entrant)
+// ============================================================
+
+function TestSendCard({ numbers }: { numbers: NumberRow[] }) {
+  const [pending, startTransition] = useTransition();
+  const [result, setResult] = useState<{
+    ok: boolean;
+    message: string;
+    realApiCall?: boolean;
+  } | null>(null);
+
+  const availableNumbers = numbers.filter((n) => n.status !== "suspended");
+  const defaultFrom = availableNumbers[0]?.phoneNumber ?? "";
+
+  return (
+    <section className="rounded-[20px] border border-border bg-card/40 p-6 backdrop-blur">
+      <div className="mb-4 flex items-center gap-2">
+        <Send className="size-4 text-primary" />
+        <h2 className="font-heading text-lg font-semibold">
+          Test envoi WhatsApp
+        </h2>
+      </div>
+      <p className="mb-4 text-xs text-muted-foreground">
+        Envoie un message test à toi-même pour vérifier que Twilio est bien
+        branché. Sans clés Twilio configurées, l&apos;envoi est simulé (faux SID).
+      </p>
+      <form
+        action={(fd) => {
+          setResult(null);
+          startTransition(async () => {
+            const r = await sendTestMessageAction(fd);
+            if (r.ok) {
+              setResult({
+                ok: true,
+                message: r.realApiCall
+                  ? `Envoyé via Twilio · SID ${r.sid?.slice(0, 14)}…`
+                  : `Simulé (mode démo) · ${r.sid?.slice(0, 18)}…`,
+                realApiCall: r.realApiCall,
+              });
+              if (r.realApiCall) {
+                toast.success("Message WhatsApp envoyé !");
+              } else {
+                toast.info("Mode démo : envoi simulé. Configure TWILIO_* pour vraiment envoyer.");
+              }
+            } else {
+              setResult({ ok: false, message: r.error ?? "Erreur inconnue" });
+              toast.error(r.error ?? "Erreur");
+            }
+          });
+        }}
+        className="grid gap-3 md:grid-cols-[2fr_2fr_3fr_auto]"
+      >
+        <select
+          name="fromPhone"
+          required
+          defaultValue={defaultFrom}
+          className="rounded-[14px] border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:glow-orange"
+        >
+          {availableNumbers.length === 0 ? (
+            <option value="">Aucun numéro dans le pool</option>
+          ) : null}
+          {availableNumbers.map((n) => (
+            <option key={n.id} value={n.phoneNumber} className="bg-card">
+              From: {n.phoneNumber}
+            </option>
+          ))}
+        </select>
+        <input
+          name="toPhone"
+          required
+          placeholder="Ton tel perso : +336XXXXXXXX"
+          className="rounded-[14px] border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:glow-orange"
+        />
+        <input
+          name="body"
+          placeholder="Message (laisser vide = ping par défaut)"
+          className="rounded-[14px] border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:glow-orange"
+        />
+        <button
+          type="submit"
+          disabled={pending || availableNumbers.length === 0}
+          className="flex items-center gap-2 rounded-[14px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:brightness-110 hover:glow-orange-strong disabled:opacity-40"
+        >
+          {pending ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <>
+              <Send className="size-4" />
+              Envoyer
+            </>
+          )}
+        </button>
+      </form>
+      {result ? (
+        <div
+          className={cn(
+            "mt-4 rounded-[14px] border p-3 text-xs",
+            result.ok
+              ? result.realApiCall
+                ? "border-emerald-500/40 bg-emerald-500/5 text-emerald-300"
+                : "border-amber-500/40 bg-amber-500/5 text-amber-300"
+              : "border-destructive/40 bg-destructive/5 text-destructive",
+          )}
+        >
+          {result.message}
+        </div>
+      ) : null}
+    </section>
   );
 }
