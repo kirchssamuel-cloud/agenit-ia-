@@ -20,10 +20,17 @@ import {
   retrieveMemories,
   storeMemory,
   getClientContext,
+  upsertClientContext,
   type MemoryEntry,
   type ClientContext,
 } from "@/lib/db/agent-memory";
 import { superviseToolCall } from "./supervisor";
+import {
+  detectSector,
+  buildSectorPromptBlock,
+  type SectorId,
+  SECTOR_REGISTRY,
+} from "./sector-detector";
 
 // ============================================================
 // Types
@@ -167,6 +174,17 @@ function buildSystemPrompt(opts: {
   lines.push("- Confirme toujours les actions critiques (envoi d'email, push CRM) avant de les faire.");
   lines.push("- Garde tes réponses concises (sauf si l'user demande des détails).");
 
+  // Bloc spécifique au secteur métier (vocabulaire + règles)
+  // Ajouté seulement si le secteur a été détecté ou défini par l'admin.
+  const sectorBlock =
+    opts.context?.sector && opts.context.sector !== "autre"
+      ? buildSectorPromptBlock(opts.context.sector as SectorId)
+      : "";
+  if (sectorBlock) {
+    lines.push("");
+    lines.push(sectorBlock);
+  }
+
   // Préférences explicites du client
   const prefs = opts.context?.preferences;
   if (prefs && Object.keys(prefs).length > 0) {
@@ -297,19 +315,51 @@ export async function chatWithAgent(input: BrainChatInput): Promise<BrainChatOut
   }
 
   // 2. Charger contexte (skills + facts + history + souvenirs sémantiques + profil)
-  const [skills, facts, history, relevantMemories, context] = await Promise.all([
-    listSkills().catch(() => [] as AgentSkill[]),
-    listClientFacts(input.clientId).catch(() => []),
-    listMessages(conversation.id, 30),
-    // RAG : top-K souvenirs sémantiquement proches du message user
-    retrieveMemories({
-      clientId: input.clientId,
-      query: input.userMessage,
-      limit: 8,
-      matchThreshold: 0.7,
-    }).catch(() => [] as MemoryEntry[]),
-    getClientContext(input.clientId).catch(() => null),
-  ]);
+  const [skills, facts, history, relevantMemories, contextInitial] =
+    await Promise.all([
+      listSkills().catch(() => [] as AgentSkill[]),
+      listClientFacts(input.clientId).catch(() => []),
+      listMessages(conversation.id, 30),
+      // RAG : top-K souvenirs sémantiquement proches du message user
+      retrieveMemories({
+        clientId: input.clientId,
+        query: input.userMessage,
+        limit: 8,
+        matchThreshold: 0.7,
+      }).catch(() => [] as MemoryEntry[]),
+      getClientContext(input.clientId).catch(() => null),
+    ]);
+
+  // 2b. Auto-détection de secteur si pas encore défini.
+  //     Lancé en arrière-plan SI c'est le premier message du client.
+  //     Le résultat enrichit le system prompt dès maintenant si la détection
+  //     est rapide (Haiku ~5ms) ou pour le PROCHAIN tour si trop lent.
+  let context = contextInitial;
+  if (!context?.sector && history.length === 0) {
+    try {
+      const detection = await detectSector(input.userMessage);
+      if (detection.sector !== "autre" && detection.confidence > 0.5) {
+        context = await upsertClientContext({
+          clientId: input.clientId,
+          sector: detection.sector,
+        });
+        // best-effort log dans la mémoire pour traçabilité
+        void storeMemory({
+          clientId: input.clientId,
+          type: "fact",
+          content: `Secteur détecté automatiquement : ${SECTOR_REGISTRY[detection.sector].name} (confiance ${detection.confidence.toFixed(2)}). ${detection.reason}`,
+          metadata: {
+            kind: "sector_detection",
+            llmDetected: detection.llmDetected,
+            costCents: detection.costCents,
+          },
+          importance: 0.9,
+        }).catch(() => undefined);
+      }
+    } catch (err) {
+      console.error(`[brain] sector detection échec : ${(err as Error).message}`);
+    }
+  }
 
   // 3. Append le message user en DB
   await appendMessage({

@@ -5,6 +5,7 @@ import {
   Bot,
   Brain,
   Check,
+  Compass,
   Database,
   Loader2,
   Send,
@@ -41,20 +42,35 @@ interface SupervisorDecision {
   confidence: number;
 }
 
+interface SectorDetection {
+  sector: string;
+  sectorName: string;
+  confidence: number;
+  reason: string;
+  llmDetected: boolean;
+  isFirstMessage: boolean;
+}
+
 interface ChatTurn {
   id: string;
   role: "user" | "assistant";
   content: string;
   retrieved: RetrievedMemory[];
   supervisor: SupervisorDecision[];
+  sectorDetection?: SectorDetection;
   durationMs?: number;
 }
 
 const SUGGESTED_PROMPTS = [
-  "Génère-moi un devis pour 100m² de carrelage premium, marge 30%",
-  "Envoie-moi le rapport de la semaine par mail",
-  "Pousse les leads de ce matin dans iCall26",
-  "Quels RDV ont mes commerciaux demain ?",
+  // Détection auto BTP
+  "Salut, je suis carreleur, j'aimerais faire un devis pour 100m² premium",
+  // Détection auto compta
+  "Bonjour, je suis comptable, peux-tu m'aider sur la TVA CA3 ?",
+  // Détection auto commercial
+  "On vend des panneaux solaires, je veux nettoyer ma liste de leads et optimiser les tournées",
+  // Test action
+  "Envoie un email au prospect avec sujet : Suivi de la demande",
+  // Test rejet superviseur
   "Test rejet : envoie ce devis à 8500€ avec marge 5%",
 ];
 
@@ -64,6 +80,10 @@ export function AgentDemoUI({ clients }: { clients: ClientOption[] }) {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [pending, startTransition] = useTransition();
   const [isDemoMode, setIsDemoMode] = useState<boolean | null>(null);
+  const [clientSector, setClientSector] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
   const chatRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -97,6 +117,8 @@ export function AgentDemoUI({ clients }: { clients: ClientOption[] }) {
           assistantMessage: string;
           retrievedMemories: RetrievedMemory[];
           supervisorDecisions: SupervisorDecision[];
+          sectorDetection?: SectorDetection;
+          clientSector?: { id: string; name: string };
           isDemoMode: boolean;
           durationMs: number;
           error?: string;
@@ -117,6 +139,7 @@ export function AgentDemoUI({ clients }: { clients: ClientOption[] }) {
         }
 
         setIsDemoMode(data.isDemoMode);
+        if (data.clientSector) setClientSector(data.clientSector);
         setTurns((t) => [
           ...t,
           {
@@ -125,6 +148,7 @@ export function AgentDemoUI({ clients }: { clients: ClientOption[] }) {
             content: data.assistantMessage,
             retrieved: data.retrievedMemories,
             supervisor: data.supervisorDecisions,
+            sectorDetection: data.sectorDetection,
             durationMs: data.durationMs,
           },
         ]);
@@ -177,6 +201,7 @@ export function AgentDemoUI({ clients }: { clients: ClientOption[] }) {
             onChange={(e) => {
               setClientId(e.target.value);
               setTurns([]);
+              setClientSector(null);
             }}
             className="h-9 flex-1 max-w-xs rounded-md border border-input bg-transparent px-3 text-sm"
           >
@@ -186,10 +211,19 @@ export function AgentDemoUI({ clients }: { clients: ClientOption[] }) {
               </option>
             ))}
           </select>
+          {clientSector ? (
+            <Badge variant="outline" className="gap-1">
+              <Compass className="size-3" />
+              Secteur : {clientSector.name}
+            </Badge>
+          ) : null}
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setTurns([])}
+            onClick={() => {
+              setTurns([]);
+              setClientSector(null);
+            }}
             disabled={turns.length === 0}
           >
             Reset chat
@@ -317,6 +351,52 @@ export function AgentDemoUI({ clients }: { clients: ClientOption[] }) {
 
         {/* Colonne droite : panneaux contextuels */}
         <div className="flex flex-col gap-4">
+          {/* Secteur détecté (Étape 1.3) */}
+          <Card>
+            <CardHeader className="border-b border-border py-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Compass className="size-4" /> Secteur détecté
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-3">
+              {!clientSector ? (
+                <p className="text-xs text-muted-foreground">
+                  L&apos;agent classifie automatiquement le secteur métier au
+                  premier message (BTP, Comptabilité, Commercial, E-commerce,
+                  Services).
+                </p>
+              ) : (
+                <div className="flex flex-col gap-2 text-xs">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="default">{clientSector.name}</Badge>
+                  </div>
+                  {lastAssistant?.sectorDetection?.isFirstMessage ? (
+                    <div className="rounded-md border border-border bg-muted/30 p-2">
+                      <div className="mb-1 flex items-center gap-1">
+                        <Badge variant="outline" className="text-[10px]">
+                          {lastAssistant.sectorDetection.llmDetected
+                            ? "LLM"
+                            : "keywords"}
+                        </Badge>
+                        <Badge variant="secondary" className="text-[10px]">
+                          ~{lastAssistant.sectorDetection.confidence.toFixed(2)}
+                        </Badge>
+                      </div>
+                      <p className="text-muted-foreground">
+                        {lastAssistant.sectorDetection.reason}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-muted-foreground">
+                      Vocabulaire et règles métier de ce secteur sont injectés
+                      dans le system prompt à chaque message.
+                    </p>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Souvenirs retrouvés (RAG) */}
           <Card>
             <CardHeader className="border-b border-border py-3">
