@@ -7,11 +7,13 @@ import { embed } from "@/lib/embeddings";
 // ============================================================
 
 export type MemoryType =
-  | "conversation"
-  | "learning"
-  | "preference"
-  | "data"
-  | "fact";
+  | "user_message" // message brut du user (recherche sémantique fine)
+  | "agent_response" // réponse brute de l'agent
+  | "conversation" // échange combiné User+Agent (vue chronologique)
+  | "learning" // correction / apprentissage de l'admin
+  | "preference" // préférence explicite ("ne jamais dépasser 30% de marge")
+  | "data" // donnée structurée importée (lead, RDV, facture)
+  | "fact"; // fait persistant ("commercial Marc préfère matin")
 
 export interface MemoryEntry {
   id: string;
