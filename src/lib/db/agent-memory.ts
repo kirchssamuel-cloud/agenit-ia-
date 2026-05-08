@@ -7,11 +7,13 @@ import { embed } from "@/lib/embeddings";
 // ============================================================
 
 export type MemoryType =
-  | "conversation"
-  | "learning"
-  | "preference"
-  | "data"
-  | "fact";
+  | "user_message" // message brut du user (recherche sémantique fine)
+  | "agent_response" // réponse brute de l'agent
+  | "conversation" // échange combiné User+Agent (vue chronologique)
+  | "learning" // correction / apprentissage de l'admin
+  | "preference" // préférence explicite ("ne jamais dépasser 30% de marge")
+  | "data" // donnée structurée importée (lead, RDV, facture)
+  | "fact"; // fait persistant ("commercial Marc préfère matin")
 
 export interface MemoryEntry {
   id: string;
@@ -180,6 +182,10 @@ export async function storeMemory(input: {
  * Recherche sémantique : retourne les top-K souvenirs les plus pertinents
  * pour la query. Si pas d'embeddings (pas de clé OpenAI), fallback sur les
  * derniers souvenirs créés.
+ *
+ * Alias : `retrieveContext` (cf. plus bas) — même chose avec une signature
+ * positionnelle plus courte (clientId, query, limit) pour matcher la spec
+ * du brief produit.
  */
 export async function retrieveMemories(input: {
   clientId: string;
@@ -245,6 +251,24 @@ export async function retrieveMemories(input: {
   });
   if (error) throw new Error(`match_memories: ${error.message}`);
   return ((data ?? []) as MemoryRow[]).map(rowToMemory);
+}
+
+/**
+ * Alias positionnel de `retrieveMemories` qui matche la spec du brief
+ * produit : `retrieveContext(clientId, query, limit)`.
+ *
+ * Permet d'écrire du code agent simple :
+ *   const context = await retrieveContext(clientId, message, 10);
+ *
+ * Sous le capot c'est la même fonction RAG (cosine pgvector ou RAM en démo).
+ */
+export async function retrieveContext(
+  clientId: string,
+  query: string,
+  limit = 10,
+  matchThreshold = 0.7,
+): Promise<MemoryEntry[]> {
+  return retrieveMemories({ clientId, query, limit, matchThreshold });
 }
 
 /**

@@ -12,7 +12,15 @@ create extension if not exists vector;
 create table if not exists public.client_memory (
   id uuid primary key default gen_random_uuid(),
   client_id uuid not null references public.clients(id) on delete cascade,
-  type text not null check (type in ('conversation', 'learning', 'preference', 'data', 'fact')),
+  type text not null check (type in (
+    'user_message',
+    'agent_response',
+    'conversation',
+    'learning',
+    'preference',
+    'data',
+    'fact'
+  )),
   content text not null,
   metadata jsonb not null default '{}'::jsonb,
   -- text-embedding-3-small => 1536 dimensions

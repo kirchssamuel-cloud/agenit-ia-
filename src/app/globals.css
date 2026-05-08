@@ -4,12 +4,22 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ============================================================
+   CHARTE GRAPHIQUE KIZZO
+   - Background : #0F172A (navy sombre) / #1E293B (navy moyen)
+   - Accents    : #F97316 (orange) / #3B82F6 (bleu électrique)
+   - Texte      : #F8FAFC (blanc cassé) / #94A3B8 (gris clair)
+   - Borders    : #334155 (gris navy)
+   - Radius     : 20px (très arrondi)
+   - Shadows    : glow neon orange/bleu sur hover
+   ============================================================ */
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --font-heading: var(--font-heading);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -48,73 +58,60 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-:root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-}
+/* ============================================================
+   PALETTE KIZZO — racine = mode dark forcé
+   (on garde un :root light pour fallback éventuel mais layout.tsx
+   force la classe .dark sur <html>, donc seules ces variables-là
+   s'appliquent en pratique)
+   ============================================================ */
 
+:root,
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  /* Backgrounds */
+  --background: #0f172a;
+  --foreground: #f8fafc;
+  --card: #1e293b;
+  --card-foreground: #f8fafc;
+  --popover: #1e293b;
+  --popover-foreground: #f8fafc;
+
+  /* Accents Kizzo */
+  --primary: #f97316; /* orange vif */
+  --primary-foreground: #0f172a;
+  --secondary: #3b82f6; /* bleu électrique */
+  --secondary-foreground: #f8fafc;
+
+  /* Neutres */
+  --muted: #1e293b;
+  --muted-foreground: #94a3b8;
+  --accent: #334155;
+  --accent-foreground: #f8fafc;
+  --destructive: #ef4444;
+
+  /* Borders & focus */
+  --border: #334155;
+  --input: #334155;
+  --ring: #f97316;
+
+  /* Chart colors (orange/bleu palette) */
+  --chart-1: #f97316;
+  --chart-2: #3b82f6;
+  --chart-3: #fb923c;
+  --chart-4: #60a5fa;
+  --chart-5: #94a3b8;
+
+  /* Border radius — 20px partout (très arrondi Kizzo) */
+  --radius: 1.25rem;
+
+  /* Sidebar */
+  --sidebar: #0f172a;
+  --sidebar-foreground: #f8fafc;
+  --sidebar-primary: #f97316;
+  --sidebar-primary-foreground: #0f172a;
+  --sidebar-accent: #1e293b;
+  --sidebar-accent-foreground: #f8fafc;
+  --sidebar-border: #334155;
+  --sidebar-ring: #f97316;
 }
 
 @layer base {
@@ -122,9 +119,94 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans;
+    /* Subtil dégradé radial en arrière-plan pour profondeur */
+    background-image:
+      radial-gradient(
+        circle at 15% 10%,
+        rgba(249, 115, 22, 0.06),
+        transparent 50%
+      ),
+      radial-gradient(
+        circle at 85% 90%,
+        rgba(59, 130, 246, 0.05),
+        transparent 50%
+      );
+    background-attachment: fixed;
   }
   html {
     @apply font-sans;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-heading;
+    letter-spacing: -0.02em;
+  }
+}
+
+/* ============================================================
+   UTILITAIRES KIZZO
+   ============================================================ */
+
+@layer utilities {
+  /* Glow neon orange (sur hover/focus accent primaire) */
+  .glow-orange {
+    box-shadow: 0 0 20px rgba(249, 115, 22, 0.15);
+  }
+  .glow-orange-strong {
+    box-shadow: 0 0 30px rgba(249, 115, 22, 0.35);
+  }
+  .hover\:glow-orange-strong:hover {
+    box-shadow: 0 0 30px rgba(249, 115, 22, 0.35);
+  }
+
+  /* Glow neon bleu (sur agent / context) */
+  .glow-blue {
+    box-shadow: 0 0 20px rgba(59, 130, 246, 0.15);
+  }
+  .glow-blue-strong {
+    box-shadow: 0 0 30px rgba(59, 130, 246, 0.35);
+  }
+
+  /* Glassmorphism subtil */
+  .glass {
+    background: rgba(30, 41, 59, 0.6);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(51, 65, 85, 0.5);
+  }
+
+  /* Gradient orange → bleu (pour badges sectoriels) */
+  .gradient-kizzo {
+    background: linear-gradient(135deg, #f97316 0%, #3b82f6 100%);
+  }
+
+  /* Texte gradient */
+  .text-gradient-kizzo {
+    background: linear-gradient(135deg, #f97316 0%, #3b82f6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Ring focus orange marqué */
+  .focus-ring-kizzo:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 2px var(--background),
+      0 0 0 4px #f97316,
+      0 0 30px rgba(249, 115, 22, 0.3);
+  }
+
+  /* Animation pulse douce pour notifications / live */
+  @keyframes pulse-glow {
+    0%, 100% {
+      box-shadow: 0 0 15px rgba(249, 115, 22, 0.2);
+    }
+    50% {
+      box-shadow: 0 0 25px rgba(249, 115, 22, 0.5);
+    }
+  }
+  .animate-pulse-glow {
+    animation: pulse-glow 2s ease-in-out infinite;
   }
 }
