@@ -14,6 +14,7 @@ import {
   PlayCircle,
   Bot,
   MessageCircle,
+  Target,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -34,6 +35,7 @@ const items: NavItem[] = [
   { href: "/whatsapp", label: "Pool WhatsApp", icon: MessageCircle, group: "Catalogue" },
 
   { href: "/agent-demo", label: "Démo Agent (chat)", icon: Bot, group: "Intelligence" },
+  { href: "/testing", label: "Évaluation Agent", icon: Target, group: "Intelligence" },
   { href: "/education", label: "Éducation Agent", icon: GraduationCap, group: "Intelligence" },
   { href: "/performance", label: "Performance Agent", icon: TrendingUp, group: "Intelligence" },
   { href: "/logs", label: "Logs & Conversations", icon: ScrollText, group: "Intelligence" },
