@@ -17,6 +17,6 @@ export const config = {
      * - whatsapp (admin page used for sandbox testing — must work without
      *   Supabase session in demo mode; protect again once auth is back)
      */
-    "/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|api/health|api/test|api/portal|api/webhooks|api/setup-mvp|api/agent-test|whatsapp).*)",
+    "/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|api/health|api/test|api/portal|api/webhooks|api/setup-mvp|api/agent-test|api/agent-gemini-test|whatsapp).*)",
   ],
 };
