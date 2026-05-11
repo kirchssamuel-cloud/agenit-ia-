@@ -354,7 +354,10 @@ function dbMessagesToClaudeMessages(messages: Message[]): Anthropic.MessageParam
 // Cœur : la fonction de chat
 // ============================================================
 
-const MODEL = "claude-opus-4-7";
+// Sonnet 4.6 — sweet spot qualité/prix (~5x moins cher qu'Opus pour ~95%
+// de la qualité sur nos cas d'usage). Si on a besoin de raisonnement plus
+// poussé sur un cas précis, on pourra surcharger via un param.
+const MODEL = "claude-sonnet-4-5";
 const MAX_TOKENS = 16_000;
 const MAX_AGENT_ITERATIONS = 6;
 
@@ -676,9 +679,10 @@ export async function chatWithAgent(input: BrainChatInput): Promise<BrainChatOut
     claudeMessages.push({ role: "user", content: toolResults });
   }
 
-  // Coût approximatif Claude Opus 4.7 : $5/M input, $25/M output
+  // Coût approximatif Claude Sonnet 4.6 : $3/M input, $15/M output
+  // (passe à 500/2500 si on repasse sur Opus 4.7)
   const costCents = Math.round(
-    (totalTokensIn / 1_000_000) * 500 + (totalTokensOut / 1_000_000) * 2_500,
+    (totalTokensIn / 1_000_000) * 300 + (totalTokensOut / 1_000_000) * 1_500,
   );
 
   // ============================================================
