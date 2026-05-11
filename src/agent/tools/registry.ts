@@ -14,6 +14,9 @@ import { rememberFactTool } from "./remember-fact";
 import { proposeLearningTool } from "./propose-learning";
 import { runModuleTool } from "./run-module";
 import { webSearchTool } from "./web-search";
+import { gmailArchiveTool } from "./gmail-archive";
+import { readGoogleCalendarTool } from "./read-google-calendar";
+import { sendWhatsAppProactiveTool } from "./send-whatsapp-proactive";
 
 export const TOOL_REGISTRY: AnyTool[] = [
   // Données
@@ -31,6 +34,9 @@ export const TOOL_REGISTRY: AnyTool[] = [
   pushIcall26Tool,
   // Intégrations externes
   readGmailInboxTool,
+  gmailArchiveTool,
+  readGoogleCalendarTool,
+  sendWhatsAppProactiveTool,
   // Utilitaire
   optimizeRouteTool,
   runModuleTool,
