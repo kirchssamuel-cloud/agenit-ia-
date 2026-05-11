@@ -8,6 +8,7 @@ import {
   MessageCircle,
   Plus,
   RefreshCw,
+  Rocket,
   Send,
   ShieldAlert,
   Sparkles,
@@ -21,6 +22,7 @@ import {
   manualAssignAction,
   releaseNumberAction,
   sendTestMessageAction,
+  setupMvpAction,
   setStatusAction,
 } from "./actions";
 import type { WhatsAppNumberStatus } from "@/lib/db/whatsapp";
@@ -128,6 +130,9 @@ export function WhatsAppPoolUI({
           status={connections.supabase}
         />
       </div>
+
+      {/* SETUP MVP RAPIDE (1 clic : client demo + tous modules + numéro) */}
+      <SetupMvpCard />
 
       {/* TEST D'ENVOI RAPIDE (pour valider Twilio en 1 clic) */}
       <TestSendCard numbers={numbers} />
@@ -680,6 +685,110 @@ function TestSendCard({ numbers }: { numbers: NumberRow[] }) {
           )}
         >
           {result.message}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+// ============================================================
+// Setup MVP rapide (1 clic : tout)
+// ============================================================
+
+function SetupMvpCard() {
+  const [pending, startTransition] = useTransition();
+  const [result, setResult] = useState<{
+    ok: boolean;
+    message: string;
+    detail?: string;
+  } | null>(null);
+
+  return (
+    <section className="rounded-[20px] border border-primary/40 bg-primary/5 p-6 backdrop-blur glow-orange">
+      <div className="mb-3 flex items-center gap-2">
+        <Rocket className="size-5 text-primary" />
+        <h2 className="font-heading text-lg font-semibold">
+          Setup MVP rapide (1 clic)
+        </h2>
+        <span className="ml-auto rounded-full bg-primary/20 px-2 py-0.5 text-[10px] font-mono font-semibold text-primary">
+          recommandé
+        </span>
+      </div>
+      <p className="mb-4 text-xs text-muted-foreground">
+        Crée un client de test avec <strong>tous les modules activés</strong>{" "}
+        et attribue le 1er numéro libre du pool. Permet de tester WhatsApp en
+        quelques secondes sans configurer chaque module manuellement.
+      </p>
+      <form
+        action={(fd) => {
+          setResult(null);
+          startTransition(async () => {
+            const r = await setupMvpAction(fd);
+            if (r.ok) {
+              setResult({
+                ok: true,
+                message: `✅ Client "${r.client?.name}" créé · agent ${r.agentNumber} · ${r.modulesActivated?.length ?? 0} modules`,
+                detail: r.onboardingSent
+                  ? "Onboarding WhatsApp envoyé à ton tel perso"
+                  : "Pas de tel perso fourni — pas d'onboarding envoyé",
+              });
+              toast.success("Setup MVP terminé !");
+            } else {
+              setResult({ ok: false, message: r.error ?? "Erreur" });
+              toast.error(r.error ?? "Erreur");
+            }
+          });
+        }}
+        className="grid gap-3 md:grid-cols-[2fr_2fr_auto]"
+      >
+        <input
+          name="clientName"
+          placeholder="Nom client (défaut : Client Demo MVP)"
+          className="rounded-[14px] border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:glow-orange"
+        />
+        <input
+          name="userPhone"
+          placeholder="Ton tel perso (+33...) — optionnel"
+          className="rounded-[14px] border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:glow-orange"
+        />
+        <button
+          type="submit"
+          disabled={pending}
+          className="flex items-center gap-2 rounded-[14px] bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition-all hover:brightness-110 hover:glow-orange-strong disabled:opacity-40"
+        >
+          {pending ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <>
+              <Rocket className="size-4" />
+              Setup MVP
+            </>
+          )}
+        </button>
+        <label className="md:col-span-3 flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+          <input
+            type="checkbox"
+            name="importSandbox"
+            defaultChecked
+            className="size-4 rounded border-border accent-primary"
+          />
+          Aussi importer le Sandbox Twilio (+1 415 523 8886) s&apos;il n&apos;est
+          pas déjà dans le pool
+        </label>
+      </form>
+      {result ? (
+        <div
+          className={cn(
+            "mt-4 rounded-[14px] border p-3 text-xs",
+            result.ok
+              ? "border-emerald-500/40 bg-emerald-500/5 text-emerald-300"
+              : "border-destructive/40 bg-destructive/5 text-destructive",
+          )}
+        >
+          <div className="font-mono">{result.message}</div>
+          {result.detail ? (
+            <div className="mt-1 text-[11px] opacity-80">{result.detail}</div>
+          ) : null}
         </div>
       ) : null}
     </section>
