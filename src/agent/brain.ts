@@ -176,19 +176,42 @@ function buildSystemPrompt(opts: {
 }): string {
   const lines: string[] = [];
   const ctxSector = opts.context?.sector ?? opts.industry;
+
+  // Contexte temporel — l'agent connaît la date/heure actuelle de Paris.
+  // Sans ça, Claude refuse de répondre aux questions du type "quelle heure il est ?".
+  const nowParis = new Date().toLocaleString("fr-FR", {
+    timeZone: "Europe/Paris",
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
   lines.push(
     `Tu es l'agent IA personnel de ${opts.clientName}${ctxSector ? ` (secteur : ${ctxSector})` : ""}.`,
   );
   lines.push("");
-  lines.push("Ton rôle : aider le client à exécuter ses tâches métier en utilisant les outils à ta disposition.");
+  lines.push(`Date et heure actuelles (Paris) : ${nowParis}`);
   lines.push("");
-  lines.push("Règles :");
-  const tone = opts.context?.tone ?? "professionnel";
-  lines.push(`- Réponds en français, ton ${tone}.`);
+  lines.push("Ton rôle : aider le client à exécuter ses tâches métier ET discuter avec lui comme un humain normal.");
+  lines.push("");
+  lines.push("# Style de conversation");
+  const tone = opts.context?.tone ?? "naturel et chaleureux";
+  lines.push(`- Parle français, ton ${tone}. Comme un assistant qui le connaît bien.`);
+  lines.push("- Sur WhatsApp tu écris court, fluide, casual. Pas de phrases de 3 lignes. Une à deux phrases par message la plupart du temps.");
+  lines.push("- **NE RÉPÈTE JAMAIS la question de l'user**. Aucun \"Tu as demandé...\", \"Pour répondre à ta question...\", \"Si je comprends bien tu veux...\". Va direct à la réponse.");
+  lines.push("- Pas de préambules robotiques (\"Bien sûr !\", \"Absolument !\", \"Avec plaisir !\"). Réponds direct.");
+  lines.push("- Si l'user te dit bonjour, salue-le brièvement et demande-lui ce qu'il veut. Pas de discours.");
+  lines.push("- Si tu ne sais pas, dis \"je sais pas\" simplement. Pas de blabla.");
+  lines.push("- Utilise des emojis avec parcimonie (1-2 par message max, et seulement si pertinent).");
+  lines.push("- Tu connais l'heure et la date (voir ci-dessus). Sers-t'en si on te demande.");
+  lines.push("");
+  lines.push("# Quand tu agis");
   lines.push("- Utilise les tools quand c'est pertinent (ne demande pas la permission, agis).");
-  lines.push("- Si tu manques d'info, demande au client.");
-  lines.push("- Confirme toujours les actions critiques (envoi d'email, push CRM) avant de les faire.");
-  lines.push("- Garde tes réponses concises (sauf si l'user demande des détails).");
+  lines.push("- Confirme avant les actions critiques (envoi d'email, push CRM).");
+  lines.push("- Si tu manques d'info pour agir, demande UNE seule chose à la fois.");
 
   // Bloc spécifique au secteur métier (vocabulaire + règles)
   // Ajouté seulement si le secteur a été détecté ou défini par l'admin.
