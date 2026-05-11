@@ -3,12 +3,16 @@
 import { revalidatePath } from "next/cache";
 import {
   importNumber,
+  listAvailableNumbers,
+  getNumberByPhone,
   releaseNumber,
   setNumberStatus,
   type WhatsAppNumberStatus,
 } from "@/lib/db/whatsapp";
 import { provisionAgentForClient } from "@/lib/whatsapp/number-manager";
 import { sendWhatsAppMessage } from "@/lib/whatsapp/twilio-client";
+import { createClient, setClientModuleEnabled } from "@/lib/db/store";
+import { MODULE_REGISTRY } from "@/modules/registry";
 
 /**
  * Server actions pour /admin/whatsapp.
@@ -143,4 +147,107 @@ export async function sendTestMessageAction(formData: FormData): Promise<{
     sid: result.sid,
     realApiCall: result.realApiCall,
   };
+}
+
+/**
+ * Setup MVP en 1 clic :
+ * 1. (Optionnel) importe le numéro Sandbox Twilio s'il n'est pas déjà dans le pool
+ * 2. Crée un client "Demo Test" (sauf s'il existe déjà → réutilise)
+ * 3. Active TOUS les modules sur ce client
+ * 4. Attribue un numéro libre du pool au client
+ * 5. Optionnel : envoie le message d'onboarding sur le tel perso fourni
+ *
+ * Permet à Samuel de tester l'agent en quelques secondes sans configurer
+ * un client réel + chaque module manuellement.
+ */
+export async function setupMvpAction(formData: FormData): Promise<{
+  ok: boolean;
+  error?: string;
+  client?: { id: string; name: string };
+  agentNumber?: string;
+  modulesActivated?: string[];
+  onboardingSent?: boolean;
+}> {
+  const importSandbox = formData.get("importSandbox") === "on";
+  const userPhone = String(formData.get("userPhone") ?? "").trim() || undefined;
+  const clientName =
+    String(formData.get("clientName") ?? "").trim() || "Client Demo MVP";
+
+  if (userPhone && !userPhone.match(/^\+\d{8,15}$/)) {
+    return {
+      ok: false,
+      error: "Téléphone perso invalide. Format E.164 attendu (+33...).",
+    };
+  }
+
+  try {
+    // 1. Import du numéro Sandbox si demandé et pas déjà présent
+    if (importSandbox) {
+      const sandboxPhone = "+14155238886";
+      const existing = await getNumberByPhone(sandboxPhone);
+      if (!existing) {
+        await importNumber({
+          phoneNumber: sandboxPhone,
+          notes: "Sandbox Twilio (importé via Setup MVP)",
+          monthlyCostCents: 0,
+        });
+      }
+    }
+
+    // 2. Vérifier qu'il y a au moins un numéro libre
+    const available = await listAvailableNumbers();
+    if (available.length === 0) {
+      return {
+        ok: false,
+        error:
+          "Aucun numéro libre dans le pool. Importe un numéro ou coche 'Importer Sandbox' d'abord.",
+      };
+    }
+
+    // 3. Créer un client de test
+    const client = await createClient({
+      name: clientName,
+      contactEmail: "demo@agent-platform.local",
+      contactPhone: userPhone,
+      industry: "Test MVP — tous secteurs",
+      notes: "Client créé via Setup MVP — utilisé pour tester l'agent en live",
+    });
+
+    // 4. Activer TOUS les modules sur ce client
+    const modulesActivated: string[] = [];
+    for (const m of MODULE_REGISTRY) {
+      try {
+        await setClientModuleEnabled(
+          client.id,
+          m.id,
+          true,
+          (m.defaultConfig ?? {}) as Record<string, unknown>,
+        );
+        modulesActivated.push(m.id);
+      } catch (err) {
+        console.error(
+          `[setupMvp] module ${m.id} échec : ${(err as Error).message}`,
+        );
+      }
+    }
+
+    // 5. Attribuer un numéro + (optionnel) envoyer onboarding
+    const result = await provisionAgentForClient({
+      clientId: client.id,
+      userPhone,
+    });
+
+    revalidatePath("/whatsapp");
+    revalidatePath("/clients");
+
+    return {
+      ok: true,
+      client: { id: client.id, name: client.name },
+      agentNumber: result.number.phoneNumber,
+      modulesActivated,
+      onboardingSent: result.onboardingSent,
+    };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
 }
