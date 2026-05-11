@@ -37,6 +37,8 @@ import {
   type SkillFolder,
 } from "./skills/registry";
 import { getInstruction } from "@/lib/db/skill-instructions";
+import { PERSONALITY_PROMPT } from "./personality";
+import { buildKnowledgePromptForSector } from "@/lib/knowledge/loader";
 
 // ============================================================
 // Types
@@ -196,27 +198,24 @@ function buildSystemPrompt(opts: {
   lines.push("");
   lines.push(`Date et heure actuelles (Paris) : ${nowParis}`);
   lines.push("");
-  lines.push("Ton rôle : aider le client à exécuter ses tâches métier ET discuter avec lui comme un humain normal.");
-  lines.push("");
-  lines.push("# Style de conversation");
-  const tone = opts.context?.tone ?? "naturel et chaleureux";
-  lines.push(`- Parle français, ton ${tone}. Comme un assistant qui le connaît bien.`);
-  lines.push("- Sur WhatsApp tu écris court, fluide, casual. Pas de phrases de 3 lignes. Une à deux phrases par message la plupart du temps.");
-  lines.push("- **NE RÉPÈTE JAMAIS la question de l'user**. Aucun \"Tu as demandé...\", \"Pour répondre à ta question...\", \"Si je comprends bien tu veux...\". Va direct à la réponse.");
-  lines.push("- Pas de préambules robotiques (\"Bien sûr !\", \"Absolument !\", \"Avec plaisir !\"). Réponds direct.");
-  lines.push("- Si l'user te dit bonjour, salue-le brièvement et demande-lui ce qu'il veut. Pas de discours.");
-  lines.push("- Si l'user demande une info que tu ne connais pas ou qui peut être périmée (actualité, prix actuel, météo, fait récent, données qui changent), **utilise le tool `web-search`** pour aller chercher en direct AVANT de répondre. Ne dis JAMAIS \"je n'ai pas accès à internet\" — tu as web-search.");
-  lines.push("- Si même après recherche tu ne sais pas, dis \"je sais pas\" simplement. Pas de blabla.");
-  lines.push("- Utilise des emojis avec parcimonie (1-2 par message max, et seulement si pertinent).");
-  lines.push("- Tu connais l'heure et la date (voir ci-dessus). Sers-t'en si on te demande.");
+
+  // ────────────────────────────────────────────
+  // Personnalité (ton, attitude, anti-patterns)
+  // Centralisée dans personality.ts pour réutilisation et tests.
+  // ────────────────────────────────────────────
+  lines.push(PERSONALITY_PROMPT);
+
+  // ────────────────────────────────────────────
+  // Quand tu agis (règles spécifiques à cet agent multi-tools)
+  // Pas dans personality.ts car couplé au système de tools/modules.
+  // ────────────────────────────────────────────
   lines.push("");
   lines.push("# Quand tu agis");
   lines.push("- Utilise les tools quand c'est pertinent (ne demande pas la permission, agis).");
   lines.push("- Confirme avant les actions critiques (envoi d'email, push CRM).");
   lines.push("- Si tu manques d'info pour agir, demande UNE seule chose à la fois.");
 
-  // Bloc spécifique au secteur métier (vocabulaire + règles)
-  // Ajouté seulement si le secteur a été détecté ou défini par l'admin.
+  // Bloc secteur léger (glossary/rules du sector-detector)
   const sectorBlock =
     opts.context?.sector && opts.context.sector !== "autre"
       ? buildSectorPromptBlock(opts.context.sector as SectorId)
@@ -224,6 +223,16 @@ function buildSystemPrompt(opts: {
   if (sectorBlock) {
     lines.push("");
     lines.push(sectorBlock);
+  }
+
+  // Knowledge base approfondie (vocabulaire technique, méthodes, exemples)
+  // Pour les secteurs où une vraie base de connaissance existe — sinon vide.
+  const knowledgeBlock = opts.context?.sector
+    ? buildKnowledgePromptForSector(opts.context.sector as SectorId)
+    : "";
+  if (knowledgeBlock) {
+    lines.push("");
+    lines.push(knowledgeBlock);
   }
 
   // Préférences explicites du client
