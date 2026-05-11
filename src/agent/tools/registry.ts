@@ -13,6 +13,7 @@ import { readIcall26SalesPerformanceTool } from "./read-icall26-sales-performanc
 import { rememberFactTool } from "./remember-fact";
 import { proposeLearningTool } from "./propose-learning";
 import { runModuleTool } from "./run-module";
+import { webSearchTool } from "./web-search";
 
 export const TOOL_REGISTRY: AnyTool[] = [
   // Données
@@ -33,6 +34,7 @@ export const TOOL_REGISTRY: AnyTool[] = [
   // Utilitaire
   optimizeRouteTool,
   runModuleTool,
+  webSearchTool,
   // Méta — pour que l'agent s'améliore lui-même
   rememberFactTool,
   proposeLearningTool,

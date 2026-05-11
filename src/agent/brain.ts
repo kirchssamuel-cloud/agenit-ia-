@@ -135,6 +135,7 @@ const ALWAYS_AVAILABLE_TOOLS = new Set<string>([
   "remember-fact",
   "propose-learning",
   "run-module",
+  "web-search",
 ]);
 
 function getAvailableToolsForClient(clientId: string): AnyTool[] {
@@ -204,7 +205,8 @@ function buildSystemPrompt(opts: {
   lines.push("- **NE RÉPÈTE JAMAIS la question de l'user**. Aucun \"Tu as demandé...\", \"Pour répondre à ta question...\", \"Si je comprends bien tu veux...\". Va direct à la réponse.");
   lines.push("- Pas de préambules robotiques (\"Bien sûr !\", \"Absolument !\", \"Avec plaisir !\"). Réponds direct.");
   lines.push("- Si l'user te dit bonjour, salue-le brièvement et demande-lui ce qu'il veut. Pas de discours.");
-  lines.push("- Si tu ne sais pas, dis \"je sais pas\" simplement. Pas de blabla.");
+  lines.push("- Si l'user demande une info que tu ne connais pas ou qui peut être périmée (actualité, prix actuel, météo, fait récent, données qui changent), **utilise le tool `web-search`** pour aller chercher en direct AVANT de répondre. Ne dis JAMAIS \"je n'ai pas accès à internet\" — tu as web-search.");
+  lines.push("- Si même après recherche tu ne sais pas, dis \"je sais pas\" simplement. Pas de blabla.");
   lines.push("- Utilise des emojis avec parcimonie (1-2 par message max, et seulement si pertinent).");
   lines.push("- Tu connais l'heure et la date (voir ci-dessus). Sers-t'en si on te demande.");
   lines.push("");
