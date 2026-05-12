@@ -110,7 +110,16 @@ function zodToJsonSchema(schema: z.ZodTypeAny): Record<string, unknown> {
 }
 
 function toolToClaudeFormat(tool: AnyTool): Anthropic.Tool {
-  const inputSchema = zodToJsonSchema(tool.inputSchema) as Anthropic.Tool["input_schema"];
+  const raw = zodToJsonSchema(tool.inputSchema) as Record<string, unknown>;
+  // Anthropic exige strictement type: "object" + properties au root.
+  // Si zodToJsonSchema tombe sur un type non-géré (fallback {}), on force
+  // un schema object vide valide plutôt que d'envoyer {} qui fait planter
+  // l'API ("tools.0.custom.input_schema.type: Field required").
+  const inputSchema = {
+    type: "object" as const,
+    properties: (raw.properties as Record<string, unknown>) ?? {},
+    required: (raw.required as string[]) ?? [],
+  } as unknown as Anthropic.Tool["input_schema"];
   return {
     name: tool.id.replace(/-/g, "_"),
     description: tool.description,
