@@ -3,7 +3,9 @@ import { z } from "zod";
 import type { WorkflowDefinition } from "../types";
 import { extractInfo } from "../actions/extract-info";
 import { sendWhatsAppOwner } from "../actions/send-message";
-import { sendEmailTool } from "@/agent/tools/send-email";
+import { renderDevisPdf, type DevisData } from "@/lib/pdf/devis-template";
+import { sendEmailWithAttachment } from "@/lib/email/send-with-attachment";
+import { getClient } from "@/lib/db/store";
 
 /**
  * Workflow devis-btp — pipeline complet de génération + validation + envoi
@@ -192,7 +194,7 @@ export const devisBtpWorkflow: WorkflowDefinition = {
 
         // Détection envoi
         if (/envoie|envoyer|envoi|ok|oui|valide|valid[éeée]|go/.test(text)) {
-          return { type: "goto", stepId: "send_email_client" };
+          return { type: "goto", stepId: "generate_pdf" };
         }
 
         // Détection refus
@@ -206,11 +208,81 @@ export const devisBtpWorkflow: WorkflowDefinition = {
       },
     },
     {
-      id: "send_email_client",
-      description: "Envoyer le devis au client par email",
+      id: "generate_pdf",
+      description: "Générer le PDF du devis (charte Kizzo)",
       execute: async (ctx) => {
         const req = ctx.instance.state.request as Record<string, unknown>;
         const calc = ctx.instance.state.calcul as Record<string, unknown>;
+        const client = getClient(ctx.instance.clientId);
+
+        const today = new Date().toLocaleDateString("fr-FR", {
+          day: "2-digit",
+          month: "long",
+          year: "numeric",
+        });
+        const numero = `DEV-${new Date().getFullYear()}-${ctx.instance.id.slice(0, 6).toUpperCase()}`;
+
+        const data: DevisData = {
+          numero,
+          date: today,
+          client: {
+            nom: (req.nom as string) ?? "Client",
+            email: (req.email as string) ?? undefined,
+          },
+          prestation: {
+            type: calc.typeKey as string,
+            gamme: calc.gammeKey as string,
+            surface: calc.surface as number,
+            prixHtM2: calc.prixHtM2 as number,
+          },
+          calcul: {
+            sousTotal: calc.sousTotal as number,
+            marge: calc.marge as number,
+            totalHt: calc.totalHt as number,
+            tva: calc.tva as number,
+            totalTtc: calc.totalTtc as number,
+          },
+          emetteur: client
+            ? {
+                nom: client.name,
+                email: client.contactEmail,
+                telephone: client.contactPhone,
+              }
+            : undefined,
+        };
+
+        try {
+          const pdfBuffer = await renderDevisPdf(data);
+          // Stocke base64 dans state pour réutilisation au step suivant
+          await ctx.updateState({
+            pdfMeta: {
+              numero,
+              filename: `Devis-${numero}.pdf`,
+              sizeBytes: pdfBuffer.byteLength,
+              generatedAt: new Date().toISOString(),
+            },
+            pdfBase64: pdfBuffer.toString("base64"),
+          });
+          ctx.log("info", `PDF généré (${pdfBuffer.byteLength} bytes)`);
+        } catch (err) {
+          return {
+            type: "fail",
+            error: `PDF generation: ${(err as Error).message}`,
+          };
+        }
+        return { type: "next" };
+      },
+    },
+    {
+      id: "send_email_client",
+      description: "Envoyer le devis au client par email avec PDF en attachment",
+      execute: async (ctx) => {
+        const req = ctx.instance.state.request as Record<string, unknown>;
+        const calc = ctx.instance.state.calcul as Record<string, unknown>;
+        const pdfMeta = ctx.instance.state.pdfMeta as
+          | { filename: string; numero: string }
+          | undefined;
+        const pdfBase64 = ctx.instance.state.pdfBase64 as string | undefined;
 
         if (!req.email || typeof req.email !== "string") {
           return {
@@ -218,41 +290,55 @@ export const devisBtpWorkflow: WorkflowDefinition = {
             error: "Email du client manquant — impossible d'envoyer",
           };
         }
+        if (!pdfBase64 || !pdfMeta) {
+          return {
+            type: "fail",
+            error: "PDF non généré — relance generate_pdf",
+          };
+        }
 
         const body = [
           `Bonjour ${req.nom ?? ""},`,
           ``,
-          `Suite à votre demande, voici votre devis :`,
+          `Suite à votre demande, vous trouverez ci-joint votre devis détaillé.`,
           ``,
-          `- Surface : ${calc.surface}m²`,
-          `- Travaux : ${calc.typeKey} (${calc.gammeKey})`,
-          `- Prix HT : ${calc.totalHt}€`,
-          `- TVA (10%) : ${calc.tva}€`,
-          `- **Total TTC : ${calc.totalTtc}€**`,
+          `Récap :`,
+          `  • ${calc.surface}m² de ${calc.typeKey} (${calc.gammeKey})`,
+          `  • Total TTC : ${calc.totalTtc}€ (TVA 10%)`,
           ``,
-          `Pour confirmer ce devis ou poser une question, répondez simplement à cet email.`,
+          `Pour confirmer ou poser une question, répondez simplement à cet email.`,
           ``,
           `Cordialement,`,
         ].join("\n");
 
-        try {
-          await sendEmailTool.execute(
+        const pdfBuffer = Buffer.from(pdfBase64, "base64");
+        const result = await sendEmailWithAttachment({
+          to: req.email,
+          subject: `Devis ${pdfMeta.numero} — ${calc.totalTtc}€ TTC`,
+          text: body,
+          attachments: [
             {
-              to: req.email,
-              subject: `Devis ${calc.typeKey} ${calc.surface}m² — ${calc.totalTtc}€ TTC`,
-              text: body,
+              filename: pdfMeta.filename,
+              content: pdfBuffer,
+              contentType: "application/pdf",
             },
-            {
-              clientId: ctx.instance.clientId,
-              runId: ctx.instance.id,
-              log: () => {},
-            },
-          );
-        } catch (err) {
-          return { type: "fail", error: `send-email: ${(err as Error).message}` };
+          ],
+        });
+
+        if (!result.ok) {
+          return {
+            type: "fail",
+            error: `send-email: ${result.reason ?? "unknown"}`,
+          };
         }
 
-        await ctx.updateState({ sentToClient: true, sentAt: new Date().toISOString() });
+        await ctx.updateState({
+          sentToClient: true,
+          sentAt: new Date().toISOString(),
+          emailMessageId: result.messageId,
+          // On purge le base64 du state une fois envoyé (économie de DB)
+          pdfBase64: undefined,
+        });
         return { type: "next" };
       },
     },
