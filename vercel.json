@@ -3,14 +3,6 @@
     {
       "path": "/api/cron/nightly-tests",
       "schedule": "0 3 * * *"
-    },
-    {
-      "path": "/api/cron/morning-triage",
-      "schedule": "0 6 * * 1-6"
-    },
-    {
-      "path": "/api/cron/evening-planning",
-      "schedule": "0 17 * * 1-6"
     }
   ]
 }
