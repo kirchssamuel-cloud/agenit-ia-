@@ -4,35 +4,78 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 /**
- * POST /api/admin/configure-twilio — configure automatiquement le webhook
- * Twilio WhatsApp Sandbox via l'API REST Twilio.
+ * POST /api/admin/configure-twilio — tente plusieurs endpoints Twilio
+ * pour configurer le webhook WhatsApp Sandbox automatiquement.
  *
- * Évite d'aller le chercher manuellement dans la console Twilio (Samuel
- * a passé 2h dessus hier).
+ * En mai 2026, l'endpoint legacy /Sandbox.json renvoie 404 sur les
+ * comptes récents. Twilio recommande officiellement de passer par la
+ * console UI ("Sandbox settings > Sandbox configuration").
  *
- * Body optionnel : { webhookUrl?: string }
- *   Si absent, utilise `https://agenit-ia.vercel.app/api/webhooks/whatsapp`.
+ * Cet endpoint essaie donc 2 stratégies API avant de fallback sur des
+ * instructions manuelles :
  *
- * Endpoint Twilio Sandbox (legacy mais toujours actif en mai 2026) :
- *   POST /2010-04-01/Accounts/{AccountSid}/Sandbox.json
- *   Champs supportés : SmsUrl, SmsMethod, VoiceUrl, VoiceMethod
- *   Pour WhatsApp sandbox, c'est le même endpoint SmsUrl qui sert.
+ *   1. POST /2010-04-01/Accounts/{Sid}/Sandbox.json (legacy)
+ *   2. PATCH https://messaging.twilio.com/v1/Services pour chaque
+ *      Messaging Service trouvé qui contient le sandbox WhatsApp
+ *
+ * Si rien ne marche, retourne les instructions UI précises (path
+ * exact dans la console, qu'on a galéré à trouver hier).
  */
 
-interface TwilioSandboxResponse {
-  account_sid?: string;
-  pin?: string;
-  phone_number?: string;
-  sms_url?: string;
-  sms_method?: string;
-  voice_url?: string;
-  voice_method?: string;
-  uri?: string;
-  // Erreurs
-  code?: number;
-  message?: string;
-  more_info?: string;
-  status?: number;
+interface ConfigAttempt {
+  endpoint: string;
+  status: number;
+  ok: boolean;
+  error?: string;
+}
+
+async function tryEndpoint(
+  endpoint: string,
+  accountSid: string,
+  authToken: string,
+  webhookUrl: string,
+  method: "POST" | "PATCH" = "POST",
+  extraBody: Record<string, string> = {},
+): Promise<ConfigAttempt> {
+  try {
+    const res = await fetch(endpoint, {
+      method,
+      headers: {
+        Authorization:
+          "Basic " +
+          Buffer.from(`${accountSid}:${authToken}`).toString("base64"),
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        SmsUrl: webhookUrl,
+        SmsMethod: "POST",
+        InboundRequestUrl: webhookUrl, // Pour Messaging Services
+        ...extraBody,
+      }).toString(),
+    });
+    const text = await res.text();
+    let parsed: Record<string, unknown> = {};
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      parsed = { raw: text };
+    }
+    return {
+      endpoint,
+      status: res.status,
+      ok: res.ok,
+      error: res.ok
+        ? undefined
+        : `${(parsed.message as string) ?? `HTTP ${res.status}`} (code ${(parsed.code as string) ?? "?"})`,
+    };
+  } catch (err) {
+    return {
+      endpoint,
+      status: 0,
+      ok: false,
+      error: (err as Error).message,
+    };
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -43,67 +86,115 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error:
-          "TWILIO_ACCOUNT_SID ou TWILIO_AUTH_TOKEN absent / placeholder dans Vercel. Configure les vars en prod d'abord.",
+        error: "TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN absent en prod.",
       },
       { status: 400 },
     );
   }
 
-  // Récupère l'URL du webhook (body JSON optionnel, sinon défaut)
   const body = (await request.json().catch(() => ({}))) as {
     webhookUrl?: string;
   };
-  const defaultWebhook = "https://agenit-ia.vercel.app/api/webhooks/whatsapp";
-  const webhookUrl = body.webhookUrl ?? defaultWebhook;
+  const webhookUrl =
+    body.webhookUrl ?? "https://agenit-ia.vercel.app/api/webhooks/whatsapp";
 
+  const attempts: ConfigAttempt[] = [];
+
+  // Stratégie 1 : endpoint legacy Sandbox
+  attempts.push(
+    await tryEndpoint(
+      `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Sandbox.json`,
+      accountSid,
+      authToken,
+      webhookUrl,
+    ),
+  );
+
+  // Stratégie 2 : lister les Messaging Services + configurer chacun
   try {
-    const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Sandbox.json`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization:
-          "Basic " +
-          Buffer.from(`${accountSid}:${authToken}`).toString("base64"),
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        SmsUrl: webhookUrl,
-        SmsMethod: "POST",
-      }).toString(),
-    });
-
-    const data = (await res.json()) as TwilioSandboxResponse;
-
-    if (!res.ok) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: data.message ?? `HTTP ${res.status}`,
-          twilioCode: data.code,
-          moreInfo: data.more_info,
-          httpStatus: res.status,
+    const servicesRes = await fetch(
+      "https://messaging.twilio.com/v1/Services",
+      {
+        headers: {
+          Authorization:
+            "Basic " +
+            Buffer.from(`${accountSid}:${authToken}`).toString("base64"),
         },
-        { status: 500 },
+      },
+    );
+    if (servicesRes.ok) {
+      const servicesData = (await servicesRes.json()) as {
+        services?: Array<{ sid: string; friendly_name?: string }>;
+      };
+      const services = servicesData.services ?? [];
+      // Cherche un service qui ressemble à un sandbox WhatsApp
+      const whatsappCandidates = services.filter((s) =>
+        (s.friendly_name ?? "").toLowerCase().includes("whatsapp"),
       );
+      const toConfigure =
+        whatsappCandidates.length > 0 ? whatsappCandidates : services;
+      for (const service of toConfigure.slice(0, 3)) {
+        attempts.push(
+          await tryEndpoint(
+            `https://messaging.twilio.com/v1/Services/${service.sid}`,
+            accountSid,
+            authToken,
+            webhookUrl,
+            "POST",
+          ),
+        );
+      }
+    } else {
+      attempts.push({
+        endpoint: "messaging.twilio.com/v1/Services (list)",
+        status: servicesRes.status,
+        ok: false,
+        error: `HTTP ${servicesRes.status}`,
+      });
     }
+  } catch (err) {
+    attempts.push({
+      endpoint: "messaging.twilio.com/v1/Services (list)",
+      status: 0,
+      ok: false,
+      error: (err as Error).message,
+    });
+  }
 
+  const anySuccess = attempts.some((a) => a.ok);
+
+  if (anySuccess) {
     return NextResponse.json({
       success: true,
-      webhookUrl: data.sms_url,
-      webhookMethod: data.sms_method,
-      sandboxNumber: data.phone_number,
-      joinCode: data.pin,
-      message:
-        "Webhook configuré ✅ Tu peux maintenant envoyer un message au sandbox.",
+      webhookUrl,
+      attempts,
+      message: "Webhook configuré ✅",
     });
-  } catch (err) {
-    console.error("[configure-twilio]", err);
-    return NextResponse.json(
-      { success: false, error: (err as Error).message },
-      { status: 500 },
-    );
   }
+
+  // Tous les endpoints API ont échoué — fallback : instructions manuelles
+  return NextResponse.json(
+    {
+      success: false,
+      error:
+        "L'API Twilio ne permet plus de configurer le sandbox webhook via REST en 2026. À faire manuellement dans la console (1 fois).",
+      attempts,
+      manualInstructions: {
+        step1: "Va sur https://console.twilio.com/us1/develop/sms/try-it-out/whatsapp-learn",
+        step2: "Scrolle TOUT EN BAS de la page (sous le QR code et le numéro sandbox)",
+        step3: "Tu trouveras une section 'Sandbox Configuration' avec 2 champs",
+        step4: `Champ "When a message comes in" → colle : ${webhookUrl}`,
+        step5: "Method : POST",
+        step6: "Clique Save",
+        alternativeUrl1:
+          "https://console.twilio.com/us1/develop/sms/settings/whatsapp-sandbox (parfois fonctionne)",
+        alternativeUrl2:
+          "https://www.twilio.com/console/sms/whatsapp/sandbox (legacy, peut rediriger)",
+      },
+      webhookToConfigure: webhookUrl,
+    },
+    { status: 200 }, // 200 car on retourne du contenu utile, pas une erreur serveur
+  );
 }
 
 export async function GET() {
@@ -111,7 +202,7 @@ export async function GET() {
     service: "configure-twilio",
     method: "POST",
     description:
-      "Configure le webhook WhatsApp Sandbox Twilio automatiquement via leur API REST. Body JSON optionnel: { webhookUrl?: string }. Sinon utilise https://agenit-ia.vercel.app/api/webhooks/whatsapp.",
+      "Tente de configurer le webhook WhatsApp Sandbox via plusieurs endpoints Twilio. Si tous échouent, retourne les instructions manuelles précises.",
     requires: ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN"],
   });
 }
