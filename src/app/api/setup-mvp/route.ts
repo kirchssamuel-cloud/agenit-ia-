@@ -1,7 +1,17 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { importNumber, getNumberByPhone, listAvailableNumbers } from "@/lib/db/whatsapp";
+import {
+  importNumber,
+  getNumberByPhone,
+  listAvailableNumbers,
+  releaseNumber,
+} from "@/lib/db/whatsapp";
 import { provisionAgentForClient } from "@/lib/whatsapp/number-manager";
-import { createClient, setClientModuleEnabled, ensureLoaded } from "@/lib/db/store";
+import {
+  createClient,
+  setClientModuleEnabled,
+  ensureLoaded,
+  listClients,
+} from "@/lib/db/store";
 import { MODULE_REGISTRY } from "@/modules/registry";
 
 export const dynamic = "force-dynamic";
@@ -44,15 +54,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1. Import sandbox number if not present
+    // 1. Import sandbox number if not present, sinon release-le pour
+    //    pouvoir le réattribuer au client courant (idempotent).
     const sandboxPhone = "+14155238886";
-    const existing = await getNumberByPhone(sandboxPhone);
+    let existing = await getNumberByPhone(sandboxPhone);
     if (!existing) {
-      await importNumber({
+      existing = await importNumber({
         phoneNumber: sandboxPhone,
         notes: "Sandbox Twilio (via /api/setup-mvp)",
         monthlyCostCents: 0,
       });
+    }
+    // Si le sandbox est déjà attribué à un autre client (test précédent),
+    // on le libère pour pouvoir le réattribuer au client courant.
+    if (existing.status === "assigned") {
+      await releaseNumber(existing.id);
     }
 
     // 2. Verify a free number exists
@@ -64,14 +80,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 3. Create demo client
-    const client = await createClient({
-      name: clientName,
-      contactEmail: "demo@agent-platform.local",
-      contactPhone: userPhone,
-      industry: "Test MVP — tous secteurs",
-      notes: "Client créé via /api/setup-mvp",
-    });
+    // 3. Réutilise un client existant avec le même contactPhone, sinon crée-le
+    let client = listClients().find(
+      (c) => c.contactPhone === userPhone,
+    );
+    if (!client) {
+      client = await createClient({
+        name: clientName,
+        contactEmail: "demo@agent-platform.local",
+        contactPhone: userPhone,
+        industry: "Test MVP — tous secteurs",
+        notes: "Client créé via /api/setup-mvp",
+      });
+    }
 
     // 4. Enable all modules on this client
     const modulesActivated: string[] = [];
