@@ -77,6 +77,20 @@ function toWhatsAppFormat(phone: string): string {
 export async function sendWhatsAppMessage(
   input: SendWhatsAppInput,
 ): Promise<SendWhatsAppResult> {
+  // 🚨 KILL SWITCH — blocage temporaire de TOUS les envois WhatsApp
+  // décidé en urgence par l'utilisateur. Aucun message ne sera envoyé tant
+  // que ce flag est en place. Pour réactiver : retirer ce bloc.
+  console.warn(
+    `[twilio] 🚨 KILL_SWITCH actif — message bloqué : ${input.from} → ${input.to} : "${input.body.slice(0, 50)}..."`,
+  );
+  return {
+    sid: `KILL_SWITCH_${Date.now()}`,
+    status: "queued",
+    costCents: 0,
+    realApiCall: false,
+  };
+
+  // eslint-disable-next-line no-unreachable
   if (!isTwilioConfigured()) {
     console.warn(
       `[twilio] Mode démo (TWILIO_ACCOUNT_SID absent) — message non envoyé : ${input.from} → ${input.to} : "${input.body.slice(0, 50)}..."`,
