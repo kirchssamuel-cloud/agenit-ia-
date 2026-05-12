@@ -160,7 +160,15 @@ export const devisBtpWorkflow: WorkflowDefinition = {
     {
       id: "wait_owner",
       description: "Attendre la réponse de Samuel",
-      execute: async () => {
+      execute: async (ctx) => {
+        // Si on a déjà reçu un input (workflow repris via
+        // continueWorkflowWithInput), on continue. Sinon on suspend.
+        const lastInput = ctx.instance.state.lastInput as
+          | { text?: string }
+          | undefined;
+        if (lastInput?.text) {
+          return { type: "next" };
+        }
         return {
           type: "wait_input",
           waitingFor: "owner_decision",
@@ -180,6 +188,10 @@ export const devisBtpWorkflow: WorkflowDefinition = {
         if (!text) {
           return { type: "fail", error: "Aucune réponse owner reçue" };
         }
+
+        // Purge lastInput pour que la prochaine itération de wait_owner
+        // suspende correctement (sinon boucle infinie sur input stale).
+        await ctx.updateState({ lastInput: undefined });
 
         // Détection ajustement marge : +XX% ou -XX%
         const pctMatch = text.match(/([+-]?\s*\d+(?:[.,]\d+)?)\s*%/);
@@ -203,7 +215,6 @@ export const devisBtpWorkflow: WorkflowDefinition = {
         }
 
         // Réponse non comprise → reposer la question
-        await ctx.updateState({ lastInput: undefined });
         return { type: "goto", stepId: "send_owner_validation" };
       },
     },
