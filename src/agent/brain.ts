@@ -39,6 +39,11 @@ import {
 import { getInstruction } from "@/lib/db/skill-instructions";
 import { PERSONALITY_PROMPT } from "./personality";
 import { buildKnowledgePromptForSector } from "@/lib/knowledge/loader";
+import {
+  pickSpecialist,
+  buildWorkflowContextBlock,
+} from "./specialist-prompts";
+import { findActiveInstanceForClient } from "@/lib/workflows/db";
 
 // ============================================================
 // Types
@@ -185,6 +190,10 @@ function buildSystemPrompt(opts: {
   context: ClientContext | null;
   /** Instructions par compétence (custom de l'admin ou défauts) */
   skillInstructions: SkillInstructionBlock[];
+  /** Casquette spécialisée détectée pour ce message (optionnelle) */
+  specialistPrompt?: string;
+  /** Bloc workflow actif (optionnel) */
+  workflowContextBlock?: string;
 }): string {
   const lines: string[] = [];
   const ctxSector = opts.context?.sector ?? opts.industry;
@@ -242,6 +251,20 @@ function buildSystemPrompt(opts: {
   if (knowledgeBlock) {
     lines.push("");
     lines.push(knowledgeBlock);
+  }
+
+  // Casquette spécialisée détectée pour ce message (devis / email / crm).
+  // Injectée AVANT le contexte client pour que le ton spécialiste prime.
+  if (opts.specialistPrompt) {
+    lines.push("");
+    lines.push(opts.specialistPrompt);
+  }
+
+  // Bloc workflow actif — si un workflow est en cours pour ce client,
+  // l'agent voit son état et son étape pour rester cohérent.
+  if (opts.workflowContextBlock) {
+    lines.push("");
+    lines.push(opts.workflowContextBlock);
   }
 
   // Préférences explicites du client
@@ -491,6 +514,32 @@ export async function chatWithAgent(input: BrainChatInput): Promise<BrainChatOut
     }
   }
 
+  // 4c. Casquette spécialisée selon le message (devis / email / crm).
+  //     Pure détection regex côté lib/agent/specialist-prompts. Si rien
+  //     ne matche, on injecte rien (agent reste général).
+  const specialistDef = pickSpecialist(input.userMessage);
+  const specialistPrompt = specialistDef?.prompt;
+
+  // 4d. Workflow actif pour ce client ? Si oui, on injecte son état pour
+  //     que l'agent reste cohérent avec la pipeline en cours.
+  //     Best-effort : si la lookup DB échoue, on continue sans.
+  let workflowContextBlock: string | undefined;
+  try {
+    const activeWorkflow = await findActiveInstanceForClient(input.clientId);
+    if (activeWorkflow) {
+      workflowContextBlock = buildWorkflowContextBlock({
+        workflowName: activeWorkflow.workflowName,
+        currentStep: activeWorkflow.currentStep,
+        status: activeWorkflow.status,
+        state: activeWorkflow.state,
+      });
+    }
+  } catch (err) {
+    console.warn(
+      `[brain] findActiveInstanceForClient échec : ${(err as Error).message}`,
+    );
+  }
+
   // 5. Construire system prompt + messages
   const systemPrompt = buildSystemPrompt({
     clientName: client.name,
@@ -500,6 +549,8 @@ export async function chatWithAgent(input: BrainChatInput): Promise<BrainChatOut
     relevantMemories,
     context,
     skillInstructions,
+    specialistPrompt,
+    workflowContextBlock,
   });
 
   const claudeMessages: Anthropic.MessageParam[] = [
