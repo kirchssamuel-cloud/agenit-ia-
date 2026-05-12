@@ -10,13 +10,13 @@ export async function GET(request: NextRequest) {
 
   if (error) {
     return NextResponse.redirect(
-      new URL(`/onboarding?oauth_error=${encodeURIComponent(error)}`, request.url),
+      new URL(`/onboarding/connect-google?oauth_error=${encodeURIComponent(error)}`, request.url),
     );
   }
 
   if (!code || !stateRaw) {
     return NextResponse.redirect(
-      new URL("/onboarding?oauth_error=missing_params", request.url),
+      new URL("/onboarding/connect-google?oauth_error=missing_params", request.url),
     );
   }
 
@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     parsed = JSON.parse(Buffer.from(stateRaw, "base64url").toString("utf-8"));
   } catch {
     return NextResponse.redirect(
-      new URL("/onboarding?oauth_error=invalid_state", request.url),
+      new URL("/onboarding/connect-google?oauth_error=invalid_state", request.url),
     );
   }
   const clientId = parsed.clientId;
@@ -77,12 +77,12 @@ export async function GET(request: NextRequest) {
 
     // Redirection finale : selon flow (public onboarding vs admin)
     const successUrl = isPublicFlow
-      ? `/onboarding/done?clientId=${clientId}`
+      ? `/onboarding/connect-google/done?clientId=${clientId}`
       : `/clients/${clientId}?oauth=google_ok`;
     return NextResponse.redirect(new URL(successUrl, request.url));
   } catch (err) {
     const errorUrl = isPublicFlow
-      ? `/onboarding?oauth_error=${encodeURIComponent((err as Error).message)}`
+      ? `/onboarding/connect-google?oauth_error=${encodeURIComponent((err as Error).message)}`
       : `/clients/${clientId}?oauth_error=${encodeURIComponent((err as Error).message)}`;
     return NextResponse.redirect(new URL(errorUrl, request.url));
   }
