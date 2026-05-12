@@ -77,20 +77,28 @@ function toWhatsAppFormat(phone: string): string {
 export async function sendWhatsAppMessage(
   input: SendWhatsAppInput,
 ): Promise<SendWhatsAppResult> {
-  // 🚨 KILL SWITCH — blocage temporaire de TOUS les envois WhatsApp
-  // décidé en urgence par l'utilisateur. Aucun message ne sera envoyé tant
-  // que ce flag est en place. Pour réactiver : retirer ce bloc.
-  console.warn(
-    `[twilio] 🚨 KILL_SWITCH actif — message bloqué : ${input.from} → ${input.to} : "${input.body.slice(0, 50)}..."`,
-  );
-  return {
-    sid: `KILL_SWITCH_${Date.now()}`,
-    status: "queued",
-    costCents: 0,
-    realApiCall: false,
-  };
+  // Kill switch contrôlé par env var Vercel. DÉSACTIVÉ par défaut pour
+  // éviter tout envoi accidentel (incident spam du 12 mai 2026 où un
+  // poll de test a déclenché 5 messages d'onboarding en boucle).
+  //
+  // Pour autoriser les envois : ajouter dans Vercel env vars
+  //   WHATSAPP_SEND_ENABLED=true
+  // Pour bloquer instantanément : remettre à false ou supprimer la var.
+  //
+  // Toujours bloqué par défaut → safe pour les développeurs qui poussent
+  // du code sans réaliser que ça peut déclencher un envoi.
+  if (process.env.WHATSAPP_SEND_ENABLED !== "true") {
+    console.warn(
+      `[twilio] WHATSAPP_SEND_ENABLED != "true" — message bloqué : ${input.from} → ${input.to} : "${input.body.slice(0, 50)}..."`,
+    );
+    return {
+      sid: `BLOCKED_BY_FLAG_${Date.now()}`,
+      status: "queued",
+      costCents: 0,
+      realApiCall: false,
+    };
+  }
 
-  // eslint-disable-next-line no-unreachable
   if (!isTwilioConfigured()) {
     console.warn(
       `[twilio] Mode démo (TWILIO_ACCOUNT_SID absent) — message non envoyé : ${input.from} → ${input.to} : "${input.body.slice(0, 50)}..."`,
