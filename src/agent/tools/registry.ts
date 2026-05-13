@@ -17,6 +17,13 @@ import { webSearchTool } from "./web-search";
 import { gmailArchiveTool } from "./gmail-archive";
 import { readGoogleCalendarTool } from "./read-google-calendar";
 import { sendWhatsAppProactiveTool } from "./send-whatsapp-proactive";
+import { sendGmailTool } from "./send-gmail";
+import { createCalendarEventTool } from "./create-calendar-event";
+import { readGoogleDriveTool } from "./read-google-drive";
+import {
+  readGoogleContactsTool,
+  createGoogleContactTool,
+} from "./google-contacts";
 
 export const TOOL_REGISTRY: AnyTool[] = [
   // Données
@@ -35,7 +42,12 @@ export const TOOL_REGISTRY: AnyTool[] = [
   // Intégrations externes
   readGmailInboxTool,
   gmailArchiveTool,
+  sendGmailTool,
   readGoogleCalendarTool,
+  createCalendarEventTool,
+  readGoogleDriveTool,
+  readGoogleContactsTool,
+  createGoogleContactTool,
   sendWhatsAppProactiveTool,
   // Utilitaire
   optimizeRouteTool,
