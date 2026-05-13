@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Lock, ArrowRight, ShieldCheck, CreditCard } from "lucide-react";
+import { Lock, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { ensureLoaded, getClient } from "@/lib/db/store";
 import { getModuleById } from "@/modules/registry";
+import { completeCheckoutDryRun } from "./actions";
 
 export default async function CheckoutPage({
   searchParams,
@@ -68,10 +69,13 @@ export default async function CheckoutPage({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form
-              className="flex flex-col gap-4"
-              action={`/onboarding?clientId=${client.id}`}
-            >
+            <form action={completeCheckoutDryRun} className="flex flex-col gap-4">
+              <input type="hidden" name="clientId" value={client.id} />
+              <input
+                type="hidden"
+                name="moduleIds"
+                value={ids.join(",")}
+              />
               <div className="grid gap-1.5">
                 <Label htmlFor="cardName">Nom sur la carte</Label>
                 <Input id="cardName" placeholder={client.name} />
@@ -99,6 +103,9 @@ export default async function CheckoutPage({
               </Button>
               <p className="flex items-center justify-center gap-2 text-center text-xs text-muted-foreground">
                 <ShieldCheck className="size-3.5" /> Paiement sécurisé · SSL · 3D Secure
+              </p>
+              <p className="text-center text-[10px] text-muted-foreground italic">
+                Mode démo — les champs CB sont décoratifs. Stripe sera branché en sprint 2.
               </p>
             </form>
           </CardContent>
