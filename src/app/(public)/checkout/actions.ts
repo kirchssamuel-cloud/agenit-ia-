@@ -66,27 +66,8 @@ export async function completeCheckoutDryRun(
   }
 
   try {
-    // 1) Activer les modules choisis
-    for (const moduleId of moduleIds) {
-      try {
-        await setClientModuleEnabled(clientId, moduleId, true);
-      } catch (err) {
-        console.error(
-          `[checkout-dryrun] module ${moduleId} échec : ${(err as Error).message}`,
-        );
-      }
-    }
-    // Toujours activer daily-triage (clé du produit)
-    if (!moduleIds.includes("daily-triage")) {
-      try {
-        await setClientModuleEnabled(clientId, "daily-triage", true);
-      } catch {
-        // module pas trouvé : non bloquant
-      }
-    }
-
-    // 2) Attribuer un numéro WhatsApp (sandbox MVP — libère + réattribue
-    //    si déjà pris par un autre client de test).
+    // 1) Provisionner le numéro WhatsApp EN PREMIER (SPOF du flow).
+    //    Si on échoue ici, on n'aura pas activé de modules pour rien.
     let sandboxExisting = await getNumberByPhone(SANDBOX_NUMBER);
     if (!sandboxExisting) {
       sandboxExisting = await importNumber({
@@ -107,6 +88,36 @@ export async function completeCheckoutDryRun(
       userPhone: client.contactPhone,
     });
     const assignedNumber = provisioned.number.phoneNumber;
+
+    // 2) Activer les modules choisis (best-effort, track le résultat)
+    let modulesOk = 0;
+    let lastModuleError: string | undefined;
+    for (const moduleId of moduleIds) {
+      try {
+        await setClientModuleEnabled(clientId, moduleId, true);
+        modulesOk++;
+      } catch (err) {
+        lastModuleError = (err as Error).message;
+        console.error(
+          `[checkout-dryrun] module ${moduleId} échec : ${lastModuleError}`,
+        );
+      }
+    }
+    // Toujours activer daily-triage (clé du produit) si pas déjà choisi
+    if (!moduleIds.includes("daily-triage")) {
+      try {
+        await setClientModuleEnabled(clientId, "daily-triage", true);
+      } catch {
+        // module pas trouvé : non bloquant
+      }
+    }
+    if (modulesOk === 0 && moduleIds.length > 0) {
+      // Pas un fail dur — le user a un numéro, mais aucun module n'a pris.
+      // On log et on continue ; l'email lui dira juste de revenir au support.
+      console.warn(
+        `[checkout-dryrun] aucun module activé sur ${moduleIds.length} (${lastModuleError ?? "raison inconnue"})`,
+      );
+    }
 
     // 3) Email de bienvenue avec numéro + lien d'onboarding
     if (client.contactEmail) {
