@@ -146,12 +146,28 @@ function buildToolMap(tools: AnyTool[]): Map<string, AnyTool> {
 /**
  * Tools toujours disponibles pour l'agent, peu importe les modules activés.
  * Permettent au cerveau de mémoriser, proposer des skills, et se réparer.
+ *
+ * Inclut aussi la suite Google complète : si le client a connecté son
+ * compte Google (via le magic-link OAuth), l'agent peut piloter Gmail,
+ * Calendar, Drive et Contacts à la demande — sans avoir à activer un
+ * module spécifique. C'est l'usage "assistant personnel tout-en-un".
+ * Si le client n'est PAS connecté, chaque tool throw IntegrationRequiredError
+ * → brain.ts transforme en magic-link WhatsApp.
  */
 const ALWAYS_AVAILABLE_TOOLS = new Set<string>([
   "remember-fact",
   "propose-learning",
   "run-module",
   "web-search",
+  // Suite Google (read + write)
+  "read-gmail-inbox",
+  "gmail-archive",
+  "send-gmail",
+  "read-google-calendar",
+  "create-calendar-event",
+  "read-google-drive",
+  "read-google-contacts",
+  "create-google-contact",
 ]);
 
 function getAvailableToolsForClient(clientId: string): AnyTool[] {
