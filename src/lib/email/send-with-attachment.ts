@@ -47,7 +47,10 @@ export async function sendEmailWithAttachment(
   }
 
   const payload: Record<string, unknown> = {
-    from: input.from ?? "Agent Platform <noreply@agent-platform.local>",
+    // Default = domaine pré-vérifié Resend (utilisable sans config DNS).
+    // À remplacer par un vrai domaine custom (ex: noreply@kizzo.fr) une
+    // fois qu'on l'aura vérifié sur resend.com/domains.
+    from: input.from ?? "Agent IA <onboarding@resend.dev>",
     to: input.to,
     subject: input.subject,
     text: input.text,
