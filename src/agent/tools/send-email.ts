@@ -39,7 +39,7 @@ export const sendEmailTool: ToolDefinition<typeof inputSchema, SendEmailOutput> 
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: input.from ?? "Agent Platform <noreply@agent-platform.local>",
+        from: input.from ?? "Agent IA <onboarding@resend.dev>",
         to: input.to,
         subject: input.subject,
         text: input.text,
