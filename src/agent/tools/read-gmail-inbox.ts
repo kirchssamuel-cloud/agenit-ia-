@@ -48,8 +48,13 @@ export const readGmailInboxTool: ToolDefinition<typeof inputSchema, ReadGmailOut
   execute: async ({ query, maxResults, includeAttachments }, ctx) => {
     const tokenRecord = await getOAuthToken(ctx.clientId, "google");
     if (!tokenRecord) {
-      throw new Error(
-        "Aucun compte Gmail connecté pour ce client. Demande au client de cliquer « Connecter Gmail ».",
+      // Importé dynamiquement pour éviter cycle
+      const { IntegrationRequiredError } = await import(
+        "@/lib/integrations/types"
+      );
+      throw new IntegrationRequiredError(
+        "gmail",
+        "lire les emails",
       );
     }
 

@@ -66,24 +66,11 @@ export const gmailArchiveTool: ToolDefinition<
   requiresSupervision: true, // destructif : on confirme avant
   inputSchema,
   execute: async ({ messageIds, action, labelName }, ctx) => {
-    const tokenRecord = await getOAuthToken(ctx.clientId, "google");
-    if (!tokenRecord) {
-      return {
-        ok: false,
-        processed: 0,
-        failed: messageIds.length,
-        errors: ["Google OAuth non connecté pour ce client"],
-      };
-    }
-
-    const oauth2 = createGoogleOAuthClient();
-    oauth2.setCredentials({
-      access_token: tokenRecord.accessToken,
-      refresh_token: tokenRecord.refreshToken ?? undefined,
-      expiry_date: tokenRecord.expiresAt
-        ? new Date(tokenRecord.expiresAt).getTime()
-        : undefined,
-    });
+    const { getAuthedGoogleClient } = await import("@/lib/google/authed-client");
+    const oauth2 = await getAuthedGoogleClient(
+      ctx.clientId,
+      "archiver des emails",
+    );
 
     const gmail = google.gmail({ version: "v1", auth: oauth2 });
 

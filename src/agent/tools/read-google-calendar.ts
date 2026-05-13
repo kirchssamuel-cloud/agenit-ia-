@@ -88,23 +88,14 @@ export const readGoogleCalendarTool: ToolDefinition<
   costEstimateCents: 0,
   inputSchema,
   execute: async ({ range, calendarId, maxResults }, ctx) => {
-    const tokenRecord = await getOAuthToken(ctx.clientId, "google");
-    if (!tokenRecord) {
-      return {
-        events: [],
-        range: { from: "", to: "" },
-        account: null,
-      };
-    }
+    const { getAuthedGoogleClient } = await import("@/lib/google/authed-client");
+    const oauth2 = await getAuthedGoogleClient(
+      ctx.clientId,
+      "lire ton calendrier",
+    );
 
-    const oauth2 = createGoogleOAuthClient();
-    oauth2.setCredentials({
-      access_token: tokenRecord.accessToken,
-      refresh_token: tokenRecord.refreshToken ?? undefined,
-      expiry_date: tokenRecord.expiresAt
-        ? new Date(tokenRecord.expiresAt).getTime()
-        : undefined,
-    });
+    // Reload token record juste pour récupérer accountEmail pour le return
+    const tokenRecord = await getOAuthToken(ctx.clientId, "google");
 
     const { from, to } = resolveRange(range);
 
@@ -145,7 +136,7 @@ export const readGoogleCalendarTool: ToolDefinition<
     return {
       events,
       range: { from: from.toISOString(), to: to.toISOString() },
-      account: tokenRecord.accountIdentifier ?? null,
+      account: tokenRecord?.accountEmail ?? null,
     };
   },
 };

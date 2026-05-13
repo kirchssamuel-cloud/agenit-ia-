@@ -711,19 +711,62 @@ export async function chatWithAgent(input: BrainChatInput): Promise<BrainChatOut
           isError: false,
         });
       } catch (err) {
-        const errMsg = (err as Error).message;
+        // Cas spécial : intégration manquante → on transforme l'erreur en
+        // instruction naturelle "voici le lien magique pour connecter".
+        // Import dynamique pour éviter une dépendance circulaire.
+        const { isIntegrationRequiredError } = await import(
+          "@/lib/integrations/types"
+        );
+        const { getIntegrationDef } = await import(
+          "@/lib/integrations/registry"
+        );
+
+        let toolResultContent: string;
+        if (isIntegrationRequiredError(err)) {
+          const def = getIntegrationDef(err.integrationId);
+          const baseUrl =
+            process.env.NEXT_PUBLIC_APP_URL ?? "https://agenit-ia.vercel.app";
+          // Pour les intégrations OAuth on envoie sur la page /connect/[id]
+          // (UI propre avec explication) plutôt que directement sur le start
+          // OAuth qui demande à l'user d'être déjà authed Vercel.
+          const connectPath =
+            def?.kind === "oauth"
+              ? `/connect/${def.id}`
+              : (def?.startUrl ?? "/onboarding/connect-google");
+          const url = `${baseUrl}${connectPath}?clientId=${input.clientId}`;
+          const serviceName = def?.displayName ?? err.integrationId;
+          const action = err.contextualHint ?? "utiliser ce service";
+          // Message structuré qui permet à Claude de comprendre qu'il doit
+          // proposer le lien magique au user (et non pas afficher un message
+          // d'erreur technique).
+          toolResultContent = JSON.stringify({
+            integration_required: true,
+            integration_id: err.integrationId,
+            service_name: serviceName,
+            action_attempted: action,
+            magic_link: url,
+            instruction_for_agent: `Le client n'a pas encore connecté ${serviceName} et veut ${action}. Réponds-lui en lui envoyant ce lien magique pour qu'il connecte en 1 clic : ${url}. Sois naturel, court, casual. Exemple : "Pour ${action} il me faut accès à ${serviceName}. Clique ici une fois et c'est branché pour toujours : ${url}"`,
+          });
+        } else {
+          toolResultContent = (err as Error).message;
+        }
+
         toolResults.push({
           type: "tool_result",
           tool_use_id: tc.id,
-          content: errMsg,
-          is_error: true,
+          content: toolResultContent,
+          is_error: !isIntegrationRequiredError(err),
         });
-        dbToolResults.push({ tool_use_id: tc.id, content: errMsg, is_error: true });
+        dbToolResults.push({
+          tool_use_id: tc.id,
+          content: toolResultContent,
+          is_error: !isIntegrationRequiredError(err),
+        });
         toolUses.push({
           toolName: tc.name,
           input: tc.input,
-          output: errMsg,
-          isError: true,
+          output: toolResultContent,
+          isError: !isIntegrationRequiredError(err),
         });
       }
     }
