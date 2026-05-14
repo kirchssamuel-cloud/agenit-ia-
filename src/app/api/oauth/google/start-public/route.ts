@@ -20,6 +20,25 @@ export const dynamic = "force-dynamic";
  * dans la DB. Pour la prod réelle, signer le lien avec un JWT (1 sem TTL).
  */
 
+/**
+ * Whitelist des paths de retour autorisés après OAuth. Empêche les
+ * open redirects ("?returnTo=https://attacker.com") tout en gardant
+ * la flexibilité de revenir sur la page d'origine.
+ */
+const ALLOWED_RETURN_PATHS = new Set<string>([
+  "/onboarding",
+  "/client-area",
+  "/client-area/connections",
+  "/onboarding/connect-google/done",
+]);
+
+function safeReturnTo(input: string | null): string | undefined {
+  if (!input) return undefined;
+  if (!input.startsWith("/")) return undefined;
+  const pathOnly = input.split("?")[0].split("#")[0];
+  return ALLOWED_RETURN_PATHS.has(pathOnly) ? pathOnly : undefined;
+}
+
 export async function GET(request: NextRequest) {
   const clientId = request.nextUrl.searchParams.get("clientId");
   if (!clientId) {
@@ -41,11 +60,16 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  const returnTo = safeReturnTo(
+    request.nextUrl.searchParams.get("returnTo"),
+  );
+
   try {
     // State encode le clientId + un flag "public" pour que le callback
-    // sache qu'il n'a pas besoin d'auth Supabase.
+    // sache qu'il n'a pas besoin d'auth Supabase. `returnTo` (whitelisté)
+    // permet de revenir sur la page d'origine après consent.
     const state = Buffer.from(
-      JSON.stringify({ clientId, public: true, ts: Date.now() }),
+      JSON.stringify({ clientId, public: true, returnTo, ts: Date.now() }),
     ).toString("base64url");
     const url = buildGoogleAuthUrl(state);
     return NextResponse.redirect(url);
