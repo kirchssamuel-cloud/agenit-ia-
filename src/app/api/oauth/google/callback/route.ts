@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  let parsed: { clientId: string; public?: boolean };
+  let parsed: { clientId: string; public?: boolean; returnTo?: string };
   try {
     parsed = JSON.parse(Buffer.from(stateRaw, "base64url").toString("utf-8"));
   } catch {
@@ -30,6 +30,20 @@ export async function GET(request: NextRequest) {
   }
   const clientId = parsed.clientId;
   const isPublicFlow = parsed.public === true;
+  // Re-valider returnTo côté callback (defense in depth) : whitelist stricte.
+  const ALLOWED_RETURN_PATHS = new Set<string>([
+    "/onboarding",
+    "/client-area",
+    "/client-area/connections",
+    "/onboarding/connect-google/done",
+  ]);
+  const returnTo =
+    parsed.returnTo &&
+    typeof parsed.returnTo === "string" &&
+    parsed.returnTo.startsWith("/") &&
+    ALLOWED_RETURN_PATHS.has(parsed.returnTo.split("?")[0])
+      ? parsed.returnTo
+      : undefined;
 
   // Si flow public (lien magique d'onboarding), pas de check Supabase auth.
   // Si flow admin classique, on requiert une session admin.
@@ -75,15 +89,29 @@ export async function GET(request: NextRequest) {
       accountEmail,
     });
 
-    // Redirection finale : selon flow (public onboarding vs admin)
-    const successUrl = isPublicFlow
-      ? `/onboarding/connect-google/done?clientId=${clientId}`
-      : `/clients/${clientId}?oauth=google_ok`;
+    // Redirection finale : si returnTo whitelisté présent, on revient là
+    // (onboarding ou /client-area/connections), avec un flag de succès.
+    // Sinon fallback sur la page done historique (flow public) ou
+    // /clients/[id] (flow admin).
+    let successUrl: string;
+    if (returnTo) {
+      successUrl = `${returnTo}?clientId=${clientId}&google=connected`;
+    } else if (isPublicFlow) {
+      successUrl = `/onboarding/connect-google/done?clientId=${clientId}`;
+    } else {
+      successUrl = `/clients/${clientId}?oauth=google_ok`;
+    }
     return NextResponse.redirect(new URL(successUrl, request.url));
   } catch (err) {
-    const errorUrl = isPublicFlow
-      ? `/onboarding/connect-google?oauth_error=${encodeURIComponent((err as Error).message)}`
-      : `/clients/${clientId}?oauth_error=${encodeURIComponent((err as Error).message)}`;
+    const errorMsg = encodeURIComponent((err as Error).message);
+    let errorUrl: string;
+    if (returnTo) {
+      errorUrl = `${returnTo}?clientId=${clientId}&oauth_error=${errorMsg}`;
+    } else if (isPublicFlow) {
+      errorUrl = `/onboarding/connect-google?oauth_error=${errorMsg}`;
+    } else {
+      errorUrl = `/clients/${clientId}?oauth_error=${errorMsg}`;
+    }
     return NextResponse.redirect(new URL(errorUrl, request.url));
   }
 }

@@ -2,15 +2,14 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
   MessageCircle,
-  Mail,
-  Calendar,
   CheckCircle2,
-  Copy,
   ExternalLink,
   Sparkles,
+  Settings,
 } from "lucide-react";
 import { ensureLoaded, getClient, listClientModules } from "@/lib/db/store";
 import { getNumberForClient } from "@/lib/db/whatsapp";
+import { getOAuthToken } from "@/lib/db/oauth";
 import { getModuleById } from "@/modules/registry";
 
 export const dynamic = "force-dynamic";
@@ -55,6 +54,8 @@ export default async function ClientAreaPage({
   }
 
   const agentNumber = await getNumberForClient(clientId);
+  const googleToken = await getOAuthToken(clientId, "google");
+  const googleConnected = Boolean(googleToken?.accessToken);
   const clientModules = listClientModules(clientId).filter((cm) => cm.enabled);
   const activeModules = clientModules
     .map((cm) => getModuleById(cm.moduleId))
@@ -162,15 +163,26 @@ export default async function ClientAreaPage({
         {/* Actions */}
         <div className="grid sm:grid-cols-2 gap-4 mb-6">
           <Link
-            href={`/onboarding/connect-google?clientId=${clientId}`}
+            href={`/client-area/connections?clientId=${clientId}`}
             className="bg-[#1E293B] border border-slate-700 rounded-[20px] p-5 hover:border-[#F97316] transition-colors group"
           >
             <div className="flex items-start gap-3">
-              <Mail className="text-[#F97316] flex-shrink-0 mt-0.5" size={20} />
+              <Settings className="text-[#F97316] flex-shrink-0 mt-0.5" size={20} />
               <div>
-                <div className="font-semibold mb-1">Connecter Gmail + Calendar</div>
+                <div className="font-semibold mb-1">
+                  Mes connexions{" "}
+                  {googleConnected ? (
+                    <span className="text-xs text-emerald-400 ml-1">
+                      ✓ Google
+                    </span>
+                  ) : (
+                    <span className="text-xs text-amber-400 ml-1">
+                      ⚠ Google à connecter
+                    </span>
+                  )}
+                </div>
                 <div className="text-xs text-slate-400">
-                  Permet à ton agent de trier tes emails et préparer ton planning
+                  Gère Gmail / Calendar / Drive / Contacts en 1 clic
                 </div>
               </div>
               <ExternalLink
