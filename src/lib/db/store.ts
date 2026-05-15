@@ -1,5 +1,6 @@
 import "server-only";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { tryNormalizePhoneE164 } from "@/lib/utils/phone";
 import type { Client, ClientModule } from "./types";
 
 // ============================================================
@@ -132,6 +133,30 @@ export function listClients(): Client[] {
 
 export function getClient(id: string): Client | undefined {
   return getCache().clients.find((c) => c.id === id);
+}
+
+/**
+ * Lookup d'un client par téléphone (E.164 normalisé attendu).
+ *
+ * Utilisé par le webhook WhatsApp pour identifier le user à partir
+ * de `From` quand le numéro Twilio destinataire est partagé (sandbox).
+ *
+ * Robuste aux clients legacy : si le `contactPhone` stocké en DB n'est
+ * pas normalisé (signup avant ce fix), on tente une normalisation à
+ * la volée pour matcher quand même.
+ *
+ * Retourne `undefined` si aucun client n'a ce contactPhone. Si plusieurs
+ * clients partagent le même numéro (cas anormal), retourne le 1er.
+ */
+export function getClientByPhone(phone: string): Client | undefined {
+  if (!phone) return undefined;
+  const target = tryNormalizePhoneE164(phone) ?? phone;
+  return getCache().clients.find((c) => {
+    if (!c.contactPhone) return false;
+    if (c.contactPhone === target) return true;
+    const normalized = tryNormalizePhoneE164(c.contactPhone);
+    return normalized === target;
+  });
 }
 
 export function listClientModules(clientId: string): ClientModule[] {

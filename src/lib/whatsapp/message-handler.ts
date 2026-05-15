@@ -4,7 +4,25 @@ import {
   appendWhatsAppMessage,
   type WhatsAppNumber,
 } from "@/lib/db/whatsapp";
+import { ensureLoaded, getClientByPhone } from "@/lib/db/store";
+import { tryNormalizePhoneE164 } from "@/lib/utils/phone";
 import { sendWhatsAppMessage } from "./twilio-client";
+
+/**
+ * Numéros Twilio considérés comme "partagés" (sandbox). Quand le `To`
+ * matche, on PRIVILÉGIE le lookup `From → contactPhone → clientId` car
+ * tous les clients partagent ce numéro et l'agent ne peut pas savoir
+ * autrement qui parle.
+ *
+ * Configurable via env TWILIO_SHARED_NUMBERS="+14155238886,+...".
+ * Défaut : sandbox Twilio.
+ */
+const SHARED_NUMBERS: Set<string> = new Set(
+  (process.env.TWILIO_SHARED_NUMBERS ?? "+14155238886")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
+);
 
 /**
  * Message Handler — pipeline d'un message WhatsApp entrant.
@@ -62,25 +80,63 @@ export async function handleInboundMessage(
 ): Promise<InboundResult> {
   const t0 = Date.now();
 
-  // 1. Identifier le numéro agent → client_id
+  // 1. Identifier le client_id
+  //
+  // Deux stratégies :
+  //
+  //  (a) **From → contactPhone → clientId** (sandbox-friendly)
+  //      Normalise le From de Twilio, match contre `clients.contactPhone`.
+  //      Marche même quand 50 clients partagent le sandbox `+14155238886`.
+  //
+  //  (b) **To → whatsapp_numbers.clientId** (prod : numéro dédié)
+  //      Le numéro Twilio To est attribué à un seul client dans la DB.
+  //
+  // On essaie (a) D'ABORD si le To est dans SHARED_NUMBERS (sandbox).
+  // Sinon on fait (b) avec fallback (a) si le To n'est pas attribué.
+  await ensureLoaded();
   const agentNumber = await getNumberByPhone(payload.toAgentPhone);
+  const isSharedNumber = SHARED_NUMBERS.has(payload.toAgentPhone);
+
+  let clientId: string | undefined;
+  const normalizedFrom = tryNormalizePhoneE164(payload.fromUserPhone);
+
+  if (isSharedNumber && normalizedFrom) {
+    const c = getClientByPhone(normalizedFrom);
+    if (c) clientId = c.id;
+  }
+
+  // Fallback / chemin normal : le numéro To est attribué à un client unique.
+  if (!clientId && agentNumber?.clientId && agentNumber.status === "assigned") {
+    clientId = agentNumber.clientId;
+  }
+
+  // Dernier recours : si on n'a pas trouvé via To, tente From même sur
+  // numéro non-partagé (un user peut avoir un numéro perso connu mais
+  // un agent number tout neuf non encore lié).
+  if (!clientId && normalizedFrom) {
+    const c = getClientByPhone(normalizedFrom);
+    if (c) clientId = c.id;
+  }
+
   if (!agentNumber) {
+    // Le numéro Twilio destinataire n'est pas du tout dans notre pool.
+    // Probablement un numéro perso utilisé par erreur, ou config webhook
+    // pointée sur le mauvais projet.
     return {
       ok: false,
       durationMs: Date.now() - t0,
       error: `NUMBER_NOT_FOUND: ${payload.toAgentPhone}`,
     };
   }
-  if (agentNumber.status !== "assigned" || !agentNumber.clientId) {
+
+  if (!clientId) {
     return {
       ok: false,
       agentNumber,
       durationMs: Date.now() - t0,
-      error: `NUMBER_NOT_ASSIGNED: status=${agentNumber.status}`,
+      error: `CLIENT_NOT_IDENTIFIED: from=${payload.fromUserPhone} to=${payload.toAgentPhone}`,
     };
   }
-
-  const clientId = agentNumber.clientId;
 
   // 2. Persister le message entrant (best-effort, on continue si échec DB)
   await appendWhatsAppMessage({
