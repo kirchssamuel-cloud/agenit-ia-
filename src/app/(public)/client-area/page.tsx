@@ -6,6 +6,7 @@ import {
   ExternalLink,
   Sparkles,
   Settings,
+  Beaker,
 } from "lucide-react";
 import { ensureLoaded, getClient, listClientModules } from "@/lib/db/store";
 import { getNumberForClient } from "@/lib/db/whatsapp";
@@ -159,6 +160,28 @@ export default async function ClientAreaPage({
             </div>
           )}
         </div>
+
+        {/* Action vedette : tester l'agent depuis le web */}
+        <Link
+          href={`/client-area/test-agent?clientId=${clientId}`}
+          className="block bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:opacity-90 transition rounded-[20px] p-5 mb-4 shadow-lg"
+        >
+          <div className="flex items-center gap-4">
+            <div className="bg-white/20 p-3 rounded-xl flex-shrink-0">
+              <Beaker className="text-white" size={28} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-bold text-lg text-white">
+                Tester mon agent maintenant
+              </div>
+              <div className="text-sm text-white/80">
+                Parle-lui depuis le navigateur — sans Twilio, sans WhatsApp.
+                Le moyen le plus rapide de voir s&apos;il marche.
+              </div>
+            </div>
+            <ExternalLink className="text-white flex-shrink-0" size={20} />
+          </div>
+        </Link>
 
         {/* Actions */}
         <div className="grid sm:grid-cols-2 gap-4 mb-6">
