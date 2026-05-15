@@ -2,6 +2,11 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createGoogleOAuthClient } from "@/lib/google/oauth";
 import { upsertOAuthToken } from "@/lib/db/oauth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  provisionAgentForClient,
+  getAgentNumberForClient,
+} from "@/lib/whatsapp/number-manager";
+import { getClient, ensureLoaded } from "@/lib/db/store";
 
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
@@ -88,6 +93,31 @@ export async function GET(request: NextRequest) {
         : undefined,
       accountEmail,
     });
+
+    // Auto-provisioning : attribue un numéro WhatsApp si pas déjà fait.
+    // Best-effort : si le pool est vide ou le provisioning échoue, on
+    // continue quand même (le client peut être attribué manuellement
+    // depuis l'admin /whatsapp, et le webhook lookup-by-From identifie
+    // déjà le client via son contactPhone même sans whatsapp_numbers row).
+    try {
+      await ensureLoaded();
+      const existing = await getAgentNumberForClient(clientId);
+      if (!existing) {
+        const client = getClient(clientId);
+        await provisionAgentForClient({
+          clientId,
+          userPhone: client?.contactPhone,
+        });
+        console.log(
+          `[oauth/callback] auto-provisioned WhatsApp number for client=${clientId}`,
+        );
+      }
+    } catch (provErr) {
+      // Pool vide ou Twilio indispo → on log et on continue, l'OAuth reste OK
+      console.warn(
+        `[oauth/callback] auto-provision skipped : ${(provErr as Error).message}`,
+      );
+    }
 
     // Redirection finale : si returnTo whitelisté présent, on revient là
     // (onboarding ou /client-area/connections), avec un flag de succès.
