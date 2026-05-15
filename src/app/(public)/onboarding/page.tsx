@@ -12,6 +12,7 @@ import {
   Folder,
   Users,
   ShieldCheck,
+  Beaker,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -163,11 +164,32 @@ export default async function OnboardingPage({
         </CardContent>
       </Card>
 
+      {/* Action vedette : tester depuis le navigateur, pas de Twilio requis */}
+      <Card className="border-[#F97316]/40 bg-gradient-to-br from-[#F97316]/10 to-transparent">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Beaker className="size-5 text-[#F97316]" />
+            Étape 2 — Teste ton agent maintenant
+          </CardTitle>
+          <CardDescription>
+            Pas besoin d&apos;attendre la config WhatsApp / Twilio : parle-lui
+            depuis le navigateur pour valider que tout marche.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button asChild className="w-full" size="lg">
+            <Link href={`/client-area/test-agent?clientId=${client.id}`}>
+              Ouvrir le chat de test <ArrowRight className="size-4" />
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Phone className="size-5" />
-            Étape 2 — Enregistre ton numéro WhatsApp
+            Étape 3 — Enregistre ton numéro WhatsApp
           </CardTitle>
           <CardDescription>
             C&apos;est le numéro de ton agent personnel. Mets-le dans tes contacts.
@@ -188,7 +210,7 @@ export default async function OnboardingPage({
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <MessageCircle className="size-5" />
-            Étape 3 — Envoie-lui ton premier message
+            Étape 4 — Envoie-lui ton premier message
           </CardTitle>
           <CardDescription>
             Pas de syntaxe particulière. Parle-lui normalement.
@@ -208,7 +230,7 @@ export default async function OnboardingPage({
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <LayoutDashboard className="size-5" />
-            Étape 4 — Accède à ton espace
+            Étape 5 — Accède à ton espace
           </CardTitle>
           <CardDescription>
             Stats, historique, gestion des connexions, planification de tournées.

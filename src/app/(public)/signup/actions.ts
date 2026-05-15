@@ -43,7 +43,13 @@ export async function signupAction(formData: FormData) {
       industry,
       notes: fullName ? `Contact : ${fullName}` : undefined,
     });
-    redirect(`/choose-modules?clientId=${client.id}`);
+
+    // Skip checkout pendant la phase test : on file direct sur l'onboarding
+    // pour que Samuel + ses premiers testeurs puissent connecter Google et
+    // tester l'agent sans avoir à passer un vrai paiement Stripe.
+    // Le code checkout reste accessible via /choose-modules pour quand on
+    // sera prêt à monétiser.
+    redirect(`/onboarding?clientId=${client.id}`);
   } catch (err) {
     if ((err as Error).message === "NEXT_REDIRECT") throw err;
     return { error: (err as Error).message };
